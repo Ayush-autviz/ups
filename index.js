@@ -333,6 +333,26 @@ async function mergePdfAppend(basePdfPath, appendPdfPath, outPath) {
   return outPath;
 }
 
+async function mergePdfInsertAfter(basePdfPath, insertPdfPath, insertAfterPageIndex, outPath) {
+  const baseBytes = fs.readFileSync(basePdfPath);
+  const insertBytes = fs.readFileSync(insertPdfPath);
+
+  const baseDoc = await PDFDocument.load(baseBytes);
+  const insertDoc = await PDFDocument.load(insertBytes);
+
+  const insertPages = await baseDoc.copyPages(insertDoc, insertDoc.getPageIndices());
+  const baseCount = baseDoc.getPageCount();
+  const startIndex = Math.min(Math.max(insertAfterPageIndex + 1, 0), baseCount);
+
+  insertPages.forEach((page, idx) => {
+    baseDoc.insertPage(startIndex + idx, page);
+  });
+
+  const outBytes = await baseDoc.save();
+  fs.writeFileSync(outPath, outBytes);
+  return outPath;
+}
+
 function chunkArray(arr, size) {
   const chunks = [];
   for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
@@ -404,6 +424,7 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
       { text: `${insurance}`, x: 448, y: 649, page: 1 },
       { text: `${others}`, x: 448, y: 635, page: 1 },
       { text: `${totalInvoiceAmount}`, x: 448, y: 621, page: 1 },
+      { text: `${shipmentData.shipmentNumber || ''}`, x: 240, y: 665 },
     ];
   }
 
@@ -492,7 +513,8 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
           outputDir: OUTPUT_DIR,
         });
         const mergedPath = path.join(OUTPUT_DIR, `${path.parse(blank.file).name}_${shipmentNumber}_MERGED.pdf`);
-        await mergePdfAppend(outputPath, itemsPdfPath, mergedPath);
+        // Insert items pages after page 1 (index 0) so base page 2 remains last
+        await mergePdfInsertAfter(outputPath, itemsPdfPath, 0, mergedPath);
         // Replace outputPath with mergedPath for upload
         fse.moveSync(mergedPath, outputPath, { overwrite: true });
       }
