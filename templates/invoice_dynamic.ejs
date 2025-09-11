@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    @page { size: Letter; margin: 20px; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #111; }
+    .page { page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { border-bottom: 1px solid #333; text-align: left; padding: 6px 4px; font-size: 10px; }
+    tbody td { border-bottom: 1px solid #ddd; padding: 6px 4px; vertical-align: top; font-size: 10px; }
+    .right { text-align: right; }
+    .center { text-align: center; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .muted { color: #666; }
+    .header { margin-bottom: 8px; font-weight: bold; }
+  </style>
+  <title>Invoice Items</title>
+  <!-- Intentionally minimal. Puppeteer will render this to PDF. -->
+  <!-- If UPS template has columns, match widths here to align visually when appended. -->
+  <!-- Adjust columns and formatting as needed. -->
+</head>
+<body>
+  <% pages.forEach((rows, pageIndex) => { %>
+    <div class="page">
+      <div class="header">Invoice Items - Page <%= pageIndex + 1 %> of <%= pages.length %></div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 8%">Qty</th>
+            <th style="width: 8%">Unit</th>
+            <th style="width: 36%">Description</th>
+            <th style="width: 14%">HS Code</th>
+            <th style="width: 10%">Origin</th>
+            <th style="width: 12%" class="right">Unit Value</th>
+            <th style="width: 12%" class="right">Line Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% rows.forEach((item) => { %>
+            <tr>
+              <td><%= item.quantity || 1 %></td>
+              <td><%= item.unit || 'PCS' %></td>
+              <td><%= item.description || '' %></td>
+              <td class="mono"><%= item.harmonizedCode || '' %></td>
+              <td><%= item.countryOfOrigin || '' %></td>
+              <td class="right"><%= (item.unitValue || 0).toFixed ? (item.unitValue || 0).toFixed(2) : item.unitValue || 0 %></td>
+              <td class="right"><%= (((item.quantity || 1) * (item.unitValue || 0))).toFixed ? (((item.quantity || 1) * (item.unitValue || 0))).toFixed(2) : ((item.quantity || 1) * (item.unitValue || 0)) %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+      <div class="muted">End of page <%= pageIndex + 1 %></div>
+    </div>
+  <% }) %>
+</body>
+</html>
+

@@ -7,6 +7,8 @@ const fs = require('fs');
 const fse = require('fs-extra');
 const path = require('path');
 const FormData = require('form-data');
+const ejs = require('ejs');
+const puppeteer = require('puppeteer');
 require('dotenv').config();
 
 // PDF tooling
@@ -24,6 +26,7 @@ const UPS_DOCS_VERSION = process.env.UPS_DOCS_VERSION || 'v1';
 const ROOT_DIR = __dirname;
 const BLANKS_DIR = path.join(ROOT_DIR, 'CUSTOMS_DOCs_BLANK');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'generated_docs');
+const TEMPLATES_DIR = path.join(ROOT_DIR, 'templates');
 
 // Ensure output directory exists
 fse.ensureDirSync(OUTPUT_DIR);
@@ -315,6 +318,61 @@ async function writeTextOnPdf(inputPath, outputPath, lines) {
 }
 
 
+async function mergePdfAppend(basePdfPath, appendPdfPath, outPath) {
+  const baseBytes = fs.readFileSync(basePdfPath);
+  const appendBytes = fs.readFileSync(appendPdfPath);
+
+  const baseDoc = await PDFDocument.load(baseBytes);
+  const appendDoc = await PDFDocument.load(appendBytes);
+
+  const pages = await baseDoc.copyPages(appendDoc, appendDoc.getPageIndices());
+  pages.forEach((p) => baseDoc.addPage(p));
+
+  const outBytes = await baseDoc.save();
+  fs.writeFileSync(outPath, outBytes);
+  return outPath;
+}
+
+function chunkArray(arr, size) {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
+  return chunks;
+}
+
+async function renderInvoiceItemsPdf(items, options) {
+  const {
+    shipmentNumber = 'UNKNOWN',
+    pageSize = 'Letter',
+    rowsPerPage = 28,
+    outputDir = OUTPUT_DIR,
+  } = options || {};
+
+  const templatePath = path.join(TEMPLATES_DIR, 'invoice_dynamic.ejs');
+  const pages = chunkArray(Array.isArray(items) ? items : [], rowsPerPage);
+
+  const html = await ejs.renderFile(templatePath, { pages }, { async: true });
+
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    const pdfBuffer = await page.pdf({
+      format: pageSize,
+      printBackground: true,
+      margin: { top: '20px', right: '20px', bottom: '20px', left: '20px' },
+    });
+    const outPath = path.join(outputDir, `INVOICE_ITEMS_${shipmentNumber}.pdf`);
+    fs.writeFileSync(outPath, pdfBuffer);
+    return outPath;
+  } finally {
+    await browser.close();
+  }
+}
+
+
 function buildCustomsLinesFromShipment(shipmentData, templateType) {
   const address = shipmentData?.address || {};
   const items = Array.isArray(shipmentData?.items) ? shipmentData.items : [];
@@ -331,31 +389,21 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
   const totalInvoiceAmount = order.total_invoice_amount || order.total || (invoiceSubtotal - discountRebate + freight + insurance + others);
 
   if (templateType === 'INVOICES') {
+    // Hybrid mode: only static fields here; items will be rendered via HTML → PDF
     return [
       // Address fields
       { text: `${address.name || ''}`, x: 84, y: 512 },
       { text: `${address.addressLine1 || ''}`, x: 23, y: 500 },
       { text: `${address.city || ''}`, x: 23, y: 488 },
       { text: `${address.countryCode || ''}`, x: 23, y: 476 },
-      
+
       // Invoice totals
-      { text: `${invoiceSubtotal}`, x: 448, y: 690 ,page: 1},
-      { text: `${discountRebate}`, x: 448, y: 676 ,page: 1},
-      { text: `${freight}`, x: 448, y: 662 ,page: 1},
-      { text: `${insurance}`, x: 448, y: 649 ,page: 1},
-      { text: `${others}`, x: 448, y: 635 ,page: 1},
-      { text: `${totalInvoiceAmount}`, x: 448, y: 621 ,page: 1},
-      
-      // Product items (like in screenshot - adjust coordinates per your template)
-      ...items.map((item, index) => [
-        { text: `${item.quantity || 1}`, x: 30, y: 355 - (index * 30) },
-        { text: `${item.unit || 'PCS'}`, x: 55, y: 355 - (index * 30) },
-        { text: `${item.description || 'Item'}`, x: 95, y: 355 - (index * 30), maxWidth: 125, lineHeight: 10, maxLines: 2 },
-        { text: `${item.harmonizedCode || ''}`, x: 233, y: 355 - (index * 30) },
-        { text: `${item.countryOfOrigin || 'FR'}`, x: 313, y: 355 - (index * 30) },
-        { text: `${item.unitValue || 0}`, x: 355, y: 355 - (index * 30) },
-        { text: `${(item.quantity || 1) * (item.unitValue || 0)}`, x: 400, y: 355 - (index * 30) },
-      ]).flat(),
+      { text: `${invoiceSubtotal}`, x: 448, y: 690, page: 1 },
+      { text: `${discountRebate}`, x: 448, y: 676, page: 1 },
+      { text: `${freight}`, x: 448, y: 662, page: 1 },
+      { text: `${insurance}`, x: 448, y: 649, page: 1 },
+      { text: `${others}`, x: 448, y: 635, page: 1 },
+      { text: `${totalInvoiceAmount}`, x: 448, y: 621, page: 1 },
     ];
   }
 
@@ -434,6 +482,20 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
       }
 
       await writeTextOnPdf(inputPath, outputPath, templateLines[blank.file] || []);
+
+      // Hybrid flow for INVOICE: generate paginated items via HTML and append to invoice template
+      if (blank.file === 'INVOICES_BLANK.pdf') {
+        const itemsPdfPath = await renderInvoiceItemsPdf(shipmentData.items || [], {
+          shipmentNumber,
+          rowsPerPage: 28,
+          pageSize: 'Letter',
+          outputDir: OUTPUT_DIR,
+        });
+        const mergedPath = path.join(OUTPUT_DIR, `${path.parse(blank.file).name}_${shipmentNumber}_MERGED.pdf`);
+        await mergePdfAppend(outputPath, itemsPdfPath, mergedPath);
+        // Replace outputPath with mergedPath for upload
+        fse.moveSync(mergedPath, outputPath, { overwrite: true });
+      }
 
       let result = { template: blank.file, outputPath };
       try {
