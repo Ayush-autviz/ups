@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    @page { size: Letter; margin: 20px; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #111; }
+    .page { page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    thead th { border-bottom: 1px solid #333; text-align: left; padding: 8px 6px; font-size: 12px; }
+    tbody td { border-bottom: 1px solid #ccc; padding: 10px 6px; vertical-align: top; font-size: 12px; height: 34px; }
+    .col-left { width: 70%; }
+    .col-right { width: 30%; }
+  </style>
+  <title>TSCA Items</title>
+</head>
+<body>
+  <% pages.forEach((rows, pageIndex) => { %>
+    <div class="page">
+      <table>
+        <thead>
+          <tr>
+            <th class="col-left">Product Description: chemical name for TSCA Section 13 or composite wood product for TSCA Title VI</th>
+            <th class="col-right">HTSUS 10-digit Classification <em>*Optional</em></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% rows.forEach((name) => { %>
+            <tr>
+              <td><%= name %></td>
+              <td></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  <% }) %>
+</body>
+</html>
+

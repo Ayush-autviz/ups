@@ -392,6 +392,33 @@ async function renderInvoiceItemsPdf(items, options) {
   }
 }
 
+async function renderTscaItemsPdf(items, options) {
+  const {
+    shipmentNumber = 'UNKNOWN',
+    pageSize = 'Letter',
+    rowsPerPage = 12,
+    outputDir = OUTPUT_DIR,
+  } = options || {};
+
+  const templatePath = path.join(TEMPLATES_DIR, 'tsca_dynamic.ejs');
+  const productNames = (Array.isArray(items) ? items : []).map((i) => i.description || i.name || '');
+  const pages = chunkArray(productNames, rowsPerPage);
+
+  const html = await ejs.renderFile(templatePath, { pages }, { async: true });
+
+  const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    const pdfBuffer = await page.pdf({ format: pageSize, printBackground: true, margin: { top: '20px', right: '20px', bottom: '20px', left: '20px' } });
+    const outPath = path.join(outputDir, `TSCA_ITEMS_${shipmentNumber}.pdf`);
+    fs.writeFileSync(outPath, pdfBuffer);
+    return outPath;
+  } finally {
+    await browser.close();
+  }
+}
+
 
 function buildCustomsLinesFromShipment(shipmentData, templateType) {
   const address = shipmentData?.address || {};
@@ -429,9 +456,9 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
   }
 
   if (templateType === 'TSCA') {
+    // Hybrid: keep static fields; render items via HTML → PDF
     return [
       { text: `${shipmentData.shipmentNumber || ''}`, x: 240, y: 665 },
-      { text: `${itemSummary}`, x: 81, y: 250, maxWidth: 125, lineHeight: 10 },
       { text: `${currentDate}`, x: 327, y: 70 },
     ];
   }
@@ -517,6 +544,22 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
         await mergePdfInsertAfter(outputPath, itemsPdfPath, 0, mergedPath);
         // Replace outputPath with mergedPath for upload
         fse.moveSync(mergedPath, outputPath, { overwrite: true });
+      }
+
+      if (blank.file === 'TSCA_BLANK.pdf') {
+        const tscaItemsPdf = await renderTscaItemsPdf(shipmentData.items || [], {
+          shipmentNumber,
+          rowsPerPage: 12,
+          pageSize: 'Letter',
+          outputDir: OUTPUT_DIR,
+        });
+        const mergedTsca = path.join(OUTPUT_DIR, `${path.parse(blank.file).name}_${shipmentNumber}_MERGED.pdf`);
+        // For TSCA, append items after the base TSCA page(s). If the template is 1-2 pages, insert after the last page index.
+        const baseBytes = fs.readFileSync(outputPath);
+        const baseDoc = await PDFDocument.load(baseBytes);
+        const lastIndex = Math.max(0, baseDoc.getPageCount() - 1);
+        await mergePdfInsertAfter(outputPath, tscaItemsPdf, lastIndex, mergedTsca);
+        fse.moveSync(mergedTsca, outputPath, { overwrite: true });
       }
 
       let result = { template: blank.file, outputPath };
