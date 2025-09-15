@@ -463,7 +463,7 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
     
     // Add up to 4 products to the TSCA form
     // These coordinates are approximate - you may need to adjust based on the actual TSCA template
-    const productYPositions = [600, 570, 540, 510]; // Y positions for 4 product lines
+    const productYPositions = [350, 340, 330, 320]; // Y positions for 4 product lines
     
     items.slice(0, 4).forEach((item, index) => {
       const description = item.description || item.name || '';
@@ -578,8 +578,17 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
           const formNumber = itemGroups.length > 1 ? `_${i + 1}` : '';
           const finalOutputPath = path.join(OUTPUT_DIR, `${path.parse(blank.file).name}_${shipmentNumber}${formNumber}.pdf`);
           
-          // Copy the base TSCA form for each product group
-          fse.copySync(outputPath, finalOutputPath);
+          // Copy the base TSCA form for each product group.
+          // Use the original blank as the source, and avoid copying when source and destination are the same.
+          const sourcePath = inputPath; // always copy from the original blank template
+          if (finalOutputPath !== outputPath) {
+            fse.copySync(sourcePath, finalOutputPath);
+          } else {
+            // Single-group case: ensure the base file exists; copy only if not already created earlier
+            if (!fs.existsSync(outputPath)) {
+              fse.copySync(sourcePath, outputPath);
+            }
+          }
           
           // Create a modified shipment data with only the products for this form
           const formShipmentData = {
