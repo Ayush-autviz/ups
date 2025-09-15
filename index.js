@@ -451,7 +451,7 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
       { text: `${insurance}`, x: 448, y: 649, page: 1 },
       { text: `${others}`, x: 448, y: 635, page: 1 },
       { text: `${totalInvoiceAmount}`, x: 448, y: 621, page: 1 },
-      { text: `${shipmentData.shipmentNumber || ''}`, x: 240, y: 665 },
+      { text: `${shipmentData.shipmentNumber || ''}`, x: 359, y: 712 },
     ];
   }
 
