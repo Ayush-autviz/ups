@@ -359,6 +359,31 @@ function chunkArray(arr, size) {
   return chunks;
 }
 
+async function fillPdfForm(pdfPath, lines) {
+  const pdfBytes = fs.readFileSync(pdfPath);
+  const pdfDoc = await PDFDocument.load(pdfBytes);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const pages = pdfDoc.getPages();
+
+  lines.forEach((line) => {
+    const pageIndex = line.page || 0;
+    if (pageIndex < pages.length) {
+      const page = pages[pageIndex];
+      const { width, height } = page.getSize();
+      page.drawText(line.text, {
+        x: line.x,
+        y: height - line.y,
+        size: 10,
+        font: font,
+        color: rgb(0, 0, 0),
+      });
+    }
+  });
+
+  const pdfBytesModified = await pdfDoc.save();
+  fs.writeFileSync(pdfPath, pdfBytesModified);
+}
+
 async function renderInvoiceItemsPdf(items, options) {
   const {
     shipmentNumber = 'UNKNOWN',
@@ -392,32 +417,6 @@ async function renderInvoiceItemsPdf(items, options) {
   }
 }
 
-async function renderTscaItemsPdf(items, options) {
-  const {
-    shipmentNumber = 'UNKNOWN',
-    pageSize = 'Letter',
-    rowsPerPage = 12,
-    outputDir = OUTPUT_DIR,
-  } = options || {};
-
-  const templatePath = path.join(TEMPLATES_DIR, 'tsca_dynamic.ejs');
-  const productNames = (Array.isArray(items) ? items : []).map((i) => i.description || i.name || '');
-  const pages = chunkArray(productNames, rowsPerPage);
-
-  const html = await ejs.renderFile(templatePath, { pages }, { async: true });
-
-  const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-  try {
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    const pdfBuffer = await page.pdf({ format: pageSize, printBackground: true, margin: { top: '20px', right: '20px', bottom: '20px', left: '20px' } });
-    const outPath = path.join(outputDir, `TSCA_ITEMS_${shipmentNumber}.pdf`);
-    fs.writeFileSync(outPath, pdfBuffer);
-    return outPath;
-  } finally {
-    await browser.close();
-  }
-}
 
 
 function buildCustomsLinesFromShipment(shipmentData, templateType) {
@@ -456,11 +455,27 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
   }
 
   if (templateType === 'TSCA') {
-    // Hybrid: keep static fields; render items via HTML → PDF
-    return [
+    // Write products directly into the blank TSCA template
+    const lines = [
       { text: `${shipmentData.shipmentNumber || ''}`, x: 240, y: 665 },
       { text: `${currentDate}`, x: 327, y: 70 },
     ];
+    
+    // Add up to 4 products to the TSCA form
+    // These coordinates are approximate - you may need to adjust based on the actual TSCA template
+    const productYPositions = [600, 570, 540, 510]; // Y positions for 4 product lines
+    
+    items.slice(0, 4).forEach((item, index) => {
+      const description = item.description || item.name || '';
+      const words = description.split(' ').slice(0, 4).join(' ');
+      lines.push({
+        text: words,
+        x: 50, // X position for product description
+        y: productYPositions[index]
+      });
+    });
+    
+    return lines;
   }
 
   if (templateType === '232_FORM') {
@@ -519,6 +534,7 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
     ];
 
     const uploadResults = [];
+    const shipmentDocuments = []; // Array to collect all document IDs for shipment association
 
     for (const blank of blanks) {
       const inputPath = path.join(BLANKS_DIR, blank.file);
@@ -547,19 +563,77 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
       }
 
       if (blank.file === 'TSCA_BLANK.pdf') {
-        const tscaItemsPdf = await renderTscaItemsPdf(shipmentData.items || [], {
-          shipmentNumber,
-          rowsPerPage: 12,
-          pageSize: 'Letter',
-          outputDir: OUTPUT_DIR,
-        });
-        const mergedTsca = path.join(OUTPUT_DIR, `${path.parse(blank.file).name}_${shipmentNumber}_MERGED.pdf`);
-        // For TSCA, append items after the base TSCA page(s). If the template is 1-2 pages, insert after the last page index.
-        const baseBytes = fs.readFileSync(outputPath);
-        const baseDoc = await PDFDocument.load(baseBytes);
-        const lastIndex = Math.max(0, baseDoc.getPageCount() - 1);
-        await mergePdfInsertAfter(outputPath, tscaItemsPdf, lastIndex, mergedTsca);
-        fse.moveSync(mergedTsca, outputPath, { overwrite: true });
+        // Create multiple TSCA forms with max 4 products each, written directly into blank template
+        const items = shipmentData.items || [];
+        const maxProductsPerForm = 4;
+        
+        // Split items into groups of max 4
+        const itemGroups = [];
+        for (let i = 0; i < items.length; i += maxProductsPerForm) {
+          itemGroups.push(items.slice(i, i + maxProductsPerForm));
+        }
+        
+        // Process each TSCA form separately
+        for (let i = 0; i < itemGroups.length; i++) {
+          const formNumber = itemGroups.length > 1 ? `_${i + 1}` : '';
+          const finalOutputPath = path.join(OUTPUT_DIR, `${path.parse(blank.file).name}_${shipmentNumber}${formNumber}.pdf`);
+          
+          // Copy the base TSCA form for each product group
+          fse.copySync(outputPath, finalOutputPath);
+          
+          // Create a modified shipment data with only the products for this form
+          const formShipmentData = {
+            ...shipmentData,
+            items: itemGroups[i]
+          };
+          
+          // Fill the TSCA form with products written directly into the blank template
+          const tscaLines = buildCustomsLinesFromShipment(formShipmentData, 'TSCA');
+          await fillPdfForm(finalOutputPath, tscaLines);
+          
+          // Upload each TSCA form separately
+          try {
+            const uploadRes = await upsUploadUserCreatedForm(finalOutputPath, {
+              fileName: path.basename(finalOutputPath),
+              fileFormat: 'pdf',
+              documentType: '013',
+              customerContext: shipmentData.customerContext || '',
+            });
+            console.log(`TSCA Form ${i + 1} upload result:`, uploadRes);
+            const documentId = uploadRes?.UploadResponse?.FormsHistoryDocumentID?.DocumentID;
+            
+            // Build shipment date/time in required format
+            const now = new Date();
+            const pad = (n) => String(n).padStart(2, '0');
+            const shipmentDateTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`;
+            
+            // Push TSCA form to shipment
+            if (documentId) {
+              const pushRes = await upsPushDocumentToShipment({
+                documentId,
+                shipmentIdentifier: shipmentNumber,
+                trackingNumber: shipmentData.trackingNumber || shipmentNumber,
+                shipmentDateTime,
+                customerContext: shipmentData.customerContext || '',
+              });
+              
+              console.log(`TSCA Form ${i + 1} push result:`, pushRes);
+              
+              // Add to upload results
+              uploadResults.push({
+                template: `TSCA_BLANK.pdf (Form ${i + 1})`,
+                outputPath: finalOutputPath,
+                uploadResponse: uploadRes,
+                pushResponse: pushRes,
+              });
+            }
+          } catch (uploadErr) {
+            console.error(`Failed to upload TSCA form ${i + 1}:`, uploadErr.message);
+          }
+        }
+        
+        // Skip the normal processing for TSCA since we handled it above
+        continue;
       }
 
       let result = { template: blank.file, outputPath };
