@@ -432,7 +432,9 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
   const freight = order.freight || 0;
   const insurance = order.insurance || 0;
   const others = order.others || 0;
+  const weight = order.weight;
   const totalInvoiceAmount = order.total_invoice_amount || order.total || (invoiceSubtotal - discountRebate + freight + insurance + others);
+  const invoiceNumber = "INV-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
 
   if (templateType === 'INVOICES') {
     // Hybrid mode: only static fields here; items will be rendered via HTML → PDF
@@ -442,28 +444,35 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
       { text: `${address.addressLine1 || ''}`, x: 23, y: 500 },
       { text: `${address.city || ''}`, x: 23, y: 488 },
       { text: `${address.countryCode || ''}`, x: 23, y: 476 },
+      { text: `${currentDate}`, x:333, y: 655 },
+      { text: `${invoiceNumber}`, x:358, y: 645 },
+
 
       // Invoice totals
       { text: `${invoiceSubtotal}`, x: 448, y: 690, page: 1 },
       { text: `${discountRebate}`, x: 448, y: 676, page: 1 },
-      { text: `${freight}`, x: 448, y: 662, page: 1 },
-      { text: `${insurance}`, x: 448, y: 649, page: 1 },
-      { text: `${others}`, x: 448, y: 635, page: 1 },
-      { text: `${totalInvoiceAmount}`, x: 448, y: 621, page: 1 },
+      { text: `${invoiceSubtotal}`, x: 448, y: 662, page: 1 },
+      { text: `${freight}`, x: 448, y: 649, page: 1 },
+      { text: `${insurance}`, x: 448, y: 635, page: 1 },
+      { text: `${others}`, x: 448, y: 622, page: 1 },
+      { text: `${totalInvoiceAmount}`, x: 448, y: 608, page: 1 },
       { text: `${shipmentData.shipmentNumber || ''}`, x: 359, y: 712 },
+      { text: `${weight || ''}`, x: 448, y: 577, page:1},
+      { text: `${items.length || ''}`, x: 448, y: 589, page:1},
+
     ];
   }
 
   if (templateType === 'TSCA') {
     // Write products directly into the blank TSCA template
     const lines = [
-      { text: `${shipmentData.shipmentNumber || ''}`, x: 240, y: 665 },
-      { text: `${currentDate}`, x: 327, y: 70 },
+      { text: `${shipmentData.shipmentNumber || ''}`, x: 240, y: 127 },
+      { text: `${currentDate}`, x: 327, y: 720 },
     ];
     
     // Add up to 4 products to the TSCA form
     // These coordinates are approximate - you may need to adjust based on the actual TSCA template
-    const productYPositions = [350, 340, 330, 320]; // Y positions for 4 product lines
+    const productYPositions = [539, 554, 569, 584]; // Y positions for 4 product lines
     
     items.slice(0, 4).forEach((item, index) => {
       const description = item.description || item.name || '';
@@ -544,8 +553,10 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
       if (!fs.existsSync(inputPath)) {
         throw new Error(`Missing template: ${inputPath}`);
       }
-
+     if (blank.file !== 'TSCA_BLANK.pdf') {
       await writeTextOnPdf(inputPath, outputPath, templateLines[blank.file] || []);
+     }
+     
 
       // Hybrid flow for INVOICE: generate paginated items via HTML and append to invoice template
       if (blank.file === 'INVOICES_BLANK.pdf') {

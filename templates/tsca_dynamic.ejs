@@ -13,12 +13,20 @@
     tbody td { border-bottom: 1px solid #ccc; padding: 10px 6px; vertical-align: top; font-size: 12px; height: 34px; }
     .col-left { width: 70%; }
     .col-right { width: 30%; }
+    .header-info { margin-bottom: 20px; font-size: 12px; }
+    .shipment-info { display: flex; justify-content: space-between; }
   </style>
   <title>TSCA Items</title>
 </head>
 <body>
   <% pages.forEach((rows, pageIndex) => { %>
     <div class="page">
+      <div class="header-info">
+        <div class="shipment-info">
+          <span><strong>Shipment Number:</strong> <%= shipmentNumber || 'N/A' %></span>
+          <span><strong>Date:</strong> <%= currentDate || new Date().toLocaleDateString('en-US') %></span>
+        </div>
+      </div>
       <table>
         <thead>
           <tr>
