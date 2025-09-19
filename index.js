@@ -476,7 +476,7 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
     const productYPositions = [539, 554, 569, 584]; // Y positions for 4 product lines
     
     items.slice(0, 4).forEach((item, index) => {
-      const description = item.name || '';
+      const description = item.description || '';
       const words = description.split(' ').slice(0, 4).join(' ');
       const hsCode = item.harmonizedCode || item.harmonizedCode || '';
       
@@ -490,7 +490,7 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
       // Add HS code at x=100 with same y coordinate
       lines.push({
         text: hsCode,
-        x: 100,
+        x: 410,
         y: productYPositions[index]
       });
     });
