@@ -29,11 +29,13 @@
       <table>
         <thead>
           <tr>
-            <th style="width: 8%">Qty</th>
-            <th style="width: 8%">Unit</th>
-            <th style="width: 36%">Description</th>
-            <th style="width: 14%">HS Code</th>
-            <th style="width: 10%">Origin</th>
+            <th style="width: 6%">Qty</th>
+            <th style="width: 6%">Unit</th>
+            <th style="width: 22%">Description</th>
+            <th style="width: 10%">HS Code</th>
+            <th style="width: 8%">Origin</th>
+            <th style="width: 16%">Manufacturer Name</th>
+            <th style="width: 18%">Manufacturer Address</th>
             <th style="width: 12%" class="right">Unit Value</th>
             <th style="width: 12%" class="right">Line Total</th>
           </tr>
@@ -46,6 +48,8 @@
               <td><%= item.description || '' %></td>
               <td class="mono"><%= item.harmonizedCode || '' %></td>
               <td><%= item.countryOfOrigin || '' %></td>
+              <td><%= item.manufacturer_name || '' %></td>
+              <td><%= item.manufacturer_address || '' %></td>
               <td class="right"><%= (item.unitValue || 0).toFixed ? (item.unitValue || 0).toFixed(2) : item.unitValue || 0 %></td>
               <td class="right"><%= (((item.quantity || 1) * (item.unitValue || 0))).toFixed ? (((item.quantity || 1) * (item.unitValue || 0))).toFixed(2) : ((item.quantity || 1) * (item.unitValue || 0)) %></td>
             </tr>

@@ -422,6 +422,7 @@ async function renderInvoiceItemsPdf(items, options) {
 function buildCustomsLinesFromShipment(shipmentData, templateType) {
   const address = shipmentData?.address || {};
   const items = Array.isArray(shipmentData?.items) ? shipmentData.items : [];
+  console.log(items,'items custom')
   const order = shipmentData?.order || {};
   const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
   const itemSummary = items.map((i) => `${i.description || 'Item'} x${i.quantity || 1}`).join('; ');
@@ -475,11 +476,21 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
     const productYPositions = [539, 554, 569, 584]; // Y positions for 4 product lines
     
     items.slice(0, 4).forEach((item, index) => {
-      const description = item.description || item.name || '';
+      const description = item.name || '';
       const words = description.split(' ').slice(0, 4).join(' ');
+      const hsCode = item.harmonizedCode || item.harmonizedCode || '';
+      
+      // Add product description
       lines.push({
         text: words,
         x: 50, // X position for product description
+        y: productYPositions[index]
+      });
+      
+      // Add HS code at x=100 with same y coordinate
+      lines.push({
+        text: hsCode,
+        x: 100,
         y: productYPositions[index]
       });
     });
