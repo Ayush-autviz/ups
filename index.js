@@ -110,8 +110,8 @@ async function createUpsShipmentReal(shipmentData) {
           Address: {
             AddressLine: [shipTo.addressLine1, shipTo.addressLine2].filter(Boolean),
             City: shipTo.city || '',
-            StateProvinceCode: 'AZ',
-            PostalCode:  '85043',
+            StateProvinceCode: shipTo.countryCode || '',
+            PostalCode:  shipTo.postalCode || '',
             CountryCode: shipTo.countryCode || 'US',
           },
           AttentionName: shipTo.attentionName || shipTo.name || 'Receiver',
@@ -129,25 +129,25 @@ async function createUpsShipmentReal(shipmentData) {
           },
         },
         Package: (shipmentData.items || []).map((it) => {
-          // Harmonize units
-          const weight = isImperial
-            ? (it.weightLbs != null ? Number(it.weightLbs) : (it.weightKg != null ? Number(it.weightKg) * 2.20462262 : 1))
-            : (it.weightKg != null ? Number(it.weightKg) : (it.weightLbs != null ? Number(it.weightLbs) * 0.45359237 : 1));
-          const lengthVal = it.length != null ? Number(it.length) : (isImperial ? 4 : 10);
-          const widthVal  = it.width  != null ? Number(it.width)  : (isImperial ? 4 : 10);
-          const heightVal = it.height != null ? Number(it.height) : (isImperial ? 4 : 10);
-
+          const weight = it.weightKg != null ? Number(it.weightKg).toFixed(1) : '1.0';
+          const lengthVal = it.length != null ? Number(it.length) : 10;
+          const widthVal  = it.width  != null ? Number(it.width)  : 10;
+          const heightVal = it.height != null ? Number(it.height) : 10;
+  
           return {
             Description: it.description || ' ',
-            Packaging: { Code: it.packagingCode || '02', Description: it.packagingDescription || 'Customer Supplied Package' },
+            Packaging: { 
+              Code: it.packagingCode || '02', 
+              Description: it.packagingDescription || 'Customer Supplied Package' 
+            },
             Dimensions: {
-              UnitOfMeasurement: { Code: dimUnit, Description: isImperial ? 'Inches' : 'Centimeters' },
+              UnitOfMeasurement: { Code: 'CM', Description: 'Centimeters' },
               Length: String(lengthVal),
               Width: String(widthVal),
               Height: String(heightVal),
             },
             PackageWeight: {
-              UnitOfMeasurement: { Code: weightUnit, Description: isImperial ? 'Pounds' : 'Kilograms' },
+              UnitOfMeasurement: { Code: 'KGS', Description: 'Kilograms' },
               Weight: String(weight),
             },
           };
@@ -471,11 +471,14 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
       { text: `${currentDate}`, x: 327, y: 720 },
     ];
     
+    // Filter items to only include those where isTSCA is "Yes"
+    const tscaItems = items.filter(item => item.isTSCA === 'Yes');
+    
     // Add up to 4 products to the TSCA form
     // These coordinates are approximate - you may need to adjust based on the actual TSCA template
     const productYPositions = [539, 554, 569, 584]; // Y positions for 4 product lines
     
-    items.slice(0, 4).forEach((item, index) => {
+    tscaItems.slice(0, 4).forEach((item, index) => {
       const description = item.description || '';
       const words = description.split(' ').slice(0, 4).join(' ');
       const hsCode = item.harmonizedCode || item.harmonizedCode || '';
@@ -587,12 +590,14 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
       if (blank.file === 'TSCA_BLANK.pdf') {
         // Create multiple TSCA forms with max 4 products each, written directly into blank template
         const items = shipmentData.items || [];
+        // Filter items to only include those where isTSCA is "Yes"
+        const tscaItems = items.filter(item => item.isTSCA === 'Yes');
         const maxProductsPerForm = 4;
         
-        // Split items into groups of max 4
+        // Split filtered TSCA items into groups of max 4
         const itemGroups = [];
-        for (let i = 0; i < items.length; i += maxProductsPerForm) {
-          itemGroups.push(items.slice(i, i + maxProductsPerForm));
+        for (let i = 0; i < tscaItems.length; i += maxProductsPerForm) {
+          itemGroups.push(tscaItems.slice(i, i + maxProductsPerForm));
         }
         
         // Process each TSCA form separately
