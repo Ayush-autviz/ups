@@ -179,7 +179,11 @@ async function createUpsShipmentReal(shipmentData) {
     });
     console.log(res.data,'response');
     const shipmentNumber = res?.data?.ShipmentResponse?.ShipmentResults?.ShipmentIdentificationNumber;
-    return { shipmentNumber, raw: res.data };
+    
+    // Extract and save GIF shipping labels from the response
+    const savedGifPaths = await saveShippingLabelsFromResponse(res.data, shipmentNumber);
+    
+    return { shipmentNumber, raw: res.data, savedGifPaths };
   } catch (err) {
     const status = err.response?.status;
     const data = err.response?.data;
@@ -190,6 +194,47 @@ async function createUpsShipmentReal(shipmentData) {
 async function createUpsShipmentMock(shipmentData) {
   const fakeNumber = `1Z${Math.random().toString().slice(2, 12).toUpperCase()}`;
   return { shipmentNumber: fakeNumber, raw: { mock: true, shipmentData } };
+}
+
+// Function to extract and save GIF shipping labels from UPS response
+async function saveShippingLabelsFromResponse(responseData, shipmentNumber) {
+  const savedPaths = [];
+  
+  try {
+    // Navigate to the PackageResults in the response
+    const packageResults = responseData?.ShipmentResponse?.ShipmentResults?.PackageResults;
+    
+    if (packageResults && Array.isArray(packageResults)) {
+      packageResults.forEach((pkgResult, index) => {
+        // Extract GraphicImage (GIF) data only
+        const graphicImage = pkgResult?.ShippingLabel?.GraphicImage;
+        if (graphicImage) {
+          try {
+            // Decode base64 GIF data
+            const gifBuffer = Buffer.from(graphicImage, 'base64');
+            
+            // Create filename for the GIF
+            const gifFileName = `SHIPPING_LABEL_${shipmentNumber}_${index + 1}.gif`;
+            const gifPath = path.join(OUTPUT_DIR, gifFileName);
+            
+            // Write GIF file
+            fs.writeFileSync(gifPath, gifBuffer);
+            savedPaths.push(gifPath);
+            
+            console.log(`Saved shipping label GIF: ${gifFileName}`);
+          } catch (gifError) {
+            console.error(`Error saving GIF for package ${index + 1}:`, gifError.message);
+          }
+        }
+      });
+    }
+    
+    console.log(`Total GIF shipping labels saved: ${savedPaths.length}`);
+    return savedPaths;
+  } catch (error) {
+    console.error('Error extracting shipping labels from response:', error.message);
+    return [];
+  }
 }
 
 // Upload a user-created form as base64 per UPS Paperless Documents API
@@ -406,7 +451,18 @@ async function sendDocumentsEmail(trackingNumber, documentPaths) {
         <p><strong>Tracking Number:</strong> ${trackingNumber}</p>
         <p>Please find the attached shipping documents below:</p>
         <ul>
-          ${documentPaths.map(filePath => `<li>${path.basename(filePath)}</li>`).join('')}
+          ${documentPaths.map(filePath => {
+            const fileName = path.basename(filePath);
+            const isShippingLabel = fileName.includes('SHIPPING_LABEL');
+            const fileType = path.extname(filePath).toUpperCase();
+            return `<li>${fileName} ${isShippingLabel ? `(${fileType} Shipping Label)` : ''}</li>`;
+          }).join('')}
+        </ul>
+        <p>This email includes:</p>
+        <ul>
+          <li>Customs documents (PDF forms)</li>
+          <li>Shipping labels (GIF images)</li>
+          <li>Invoice documents</li>
         </ul>
         <p>Thank you for using our shipping service.</p>
       `,
@@ -609,6 +665,7 @@ app.post('/create-shipment', async (req, res) => {
     let result;
     try {
       result = await createUpsShipmentReal(shipmentData);
+      console.log(result.raw.ShipmentResponse,'result of creat');
     } catch (realErr) {
       // fall back to mock if real fails or no creds
       if (UPS_CLIENT_ID && UPS_CLIENT_SECRET) {
@@ -617,7 +674,11 @@ app.post('/create-shipment', async (req, res) => {
      // result = await createUpsShipmentMock(shipmentData);
     }
 
-    res.json({ shipmentNumber: result.shipmentNumber, raw: result.raw });
+    res.json({ 
+      shipmentNumber: result.shipmentNumber, 
+      raw: result.raw,
+      savedGifPaths: result.savedGifPaths || []
+    });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Create shipment failed' });
   }
@@ -629,6 +690,9 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
   const shipmentNumber = req.params.shipmentNumber;
   const shipmentData = req.body || {};
   shipmentData.shipmentNumber = shipmentNumber; // Add shipment number to data
+  
+  // Get saved GIF paths from request body (sent from create-shipment response)
+  const savedGifPaths = req.body.savedGifPaths || [];
   try {
     // Build lines per template type
     const templateLines = {
@@ -803,8 +867,11 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
       uploadResults.push(result);
     }
 
-    // Send email with all generated documents
-    const emailResult = await sendDocumentsEmail(shipmentNumber, generatedDocumentPaths);
+    // Combine generated documents with saved GIF shipping labels
+    const allDocumentPaths = [...generatedDocumentPaths, ...savedGifPaths];
+    
+    // Send email with all generated documents including GIF shipping labels
+    const emailResult = await sendDocumentsEmail(shipmentNumber, allDocumentPaths);
     console.log('Email result:', emailResult);
 
     // Clean up generated documents folder after email is sent
@@ -816,7 +883,9 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
       uploadResults, 
       emailResult,
       cleanupResult,
-      generatedDocumentsCount: generatedDocumentPaths.length
+      generatedDocumentsCount: generatedDocumentPaths.length,
+      shippingLabelsCount: savedGifPaths.length,
+      totalDocumentsEmailed: allDocumentPaths.length
     });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Doc generation/upload failed' });
