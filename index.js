@@ -9,6 +9,7 @@ const path = require('path');
 const FormData = require('form-data');
 const ejs = require('ejs');
 const puppeteer = require('puppeteer');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 // PDF tooling
@@ -21,6 +22,11 @@ const UPS_BASE_URL = process.env.UPS_BASE_URL || 'https://wwwcie.ups.com';
 const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || 'OmVHMj0fI8ydcTwM1zzqRJt7qUKFxThisW2iXhT103xH4tlu';
 const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || 'NGONMZfxH5s0yMgasUA6dzPLvYtqlGzOjVIy5iHEGPhGDV0VVYRWvPwMv2jeq15C';
 const UPS_DOCS_VERSION = process.env.UPS_DOCS_VERSION || 'v1';
+
+// Email Configuration
+const EMAIL_USER = process.env.EMAIL_USER || '';
+const EMAIL_PASS = process.env.EMAIL_PASS || '';
+const EMAIL_TO = process.env.EMAIL_TO || '';
 
 // Paths
 const ROOT_DIR = __dirname;
@@ -366,6 +372,79 @@ function chunkArray(arr, size) {
   return chunks;
 }
 
+// Email functionality
+async function sendDocumentsEmail(trackingNumber, documentPaths) {
+  if (!EMAIL_USER || !EMAIL_PASS || !EMAIL_TO) {
+    console.log('Email configuration missing. Skipping email send.');
+    return { success: false, message: 'Email configuration missing' };
+  }
+
+  try {
+    // Create transporter for Gmail SMTP
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: EMAIL_USER,
+        pass: EMAIL_PASS
+      }
+    });
+
+    // Prepare attachments
+    const attachments = documentPaths.map(filePath => ({
+      filename: path.basename(filePath),
+      path: filePath
+    }));
+
+    // Email options
+    const mailOptions = {
+      from: EMAIL_USER,
+      to: EMAIL_TO,
+      subject: `UPS Documents - Tracking Number: ${trackingNumber}`,
+      text: `Please find attached the UPS shipping documents for tracking number: ${trackingNumber}`,
+      html: `
+        <h2>UPS Shipping Documents</h2>
+        <p><strong>Tracking Number:</strong> ${trackingNumber}</p>
+        <p>Please find the attached shipping documents below:</p>
+        <ul>
+          ${documentPaths.map(filePath => `<li>${path.basename(filePath)}</li>`).join('')}
+        </ul>
+        <p>Thank you for using our shipping service.</p>
+      `,
+      attachments: attachments
+    };
+
+    // Send email
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Email sent successfully:', info.messageId);
+    return { success: true, messageId: info.messageId };
+  } catch (error) {
+    console.error('Error sending email:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+// Cleanup function to empty generated_docs folder
+function cleanupGeneratedDocs() {
+  try {
+    if (fs.existsSync(OUTPUT_DIR)) {
+      const files = fs.readdirSync(OUTPUT_DIR);
+      files.forEach(file => {
+        const filePath = path.join(OUTPUT_DIR, file);
+        if (fs.statSync(filePath).isFile()) {
+          fs.unlinkSync(filePath);
+          console.log(`Deleted file: ${file}`);
+        }
+      });
+      console.log('Generated docs folder cleaned up successfully');
+      return { success: true, message: 'Generated docs folder cleaned up' };
+    }
+    return { success: true, message: 'Generated docs folder does not exist' };
+  } catch (error) {
+    console.error('Error cleaning up generated docs:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 async function fillPdfForm(pdfPath, lines) {
   const pdfBytes = fs.readFileSync(pdfPath);
   const pdfDoc = await PDFDocument.load(pdfBytes);
@@ -566,6 +645,7 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
 
     const uploadResults = [];
     const shipmentDocuments = []; // Array to collect all document IDs for shipment association
+    const generatedDocumentPaths = []; // Array to collect all generated document paths for email
 
     for (const blank of blanks) {
       const inputPath = path.join(BLANKS_DIR, blank.file);
@@ -577,6 +657,7 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
       }
      if (blank.file !== 'TSCA_BLANK.pdf') {
       await writeTextOnPdf(inputPath, outputPath, templateLines[blank.file] || []);
+      generatedDocumentPaths.push(outputPath);
      }
      
 
@@ -624,6 +705,9 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
               fse.copySync(sourcePath, outputPath);
             }
           }
+          
+          // Add TSCA form path to generated documents array
+          generatedDocumentPaths.push(finalOutputPath);
           
           // Create a modified shipment data with only the products for this form
           const formShipmentData = {
@@ -719,7 +803,21 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
       uploadResults.push(result);
     }
 
-    res.json({ shipmentNumber, uploadResults });
+    // Send email with all generated documents
+    const emailResult = await sendDocumentsEmail(shipmentNumber, generatedDocumentPaths);
+    console.log('Email result:', emailResult);
+
+    // Clean up generated documents folder after email is sent
+    const cleanupResult = cleanupGeneratedDocs();
+    console.log('Cleanup result:', cleanupResult);
+
+    res.json({ 
+      shipmentNumber, 
+      uploadResults, 
+      emailResult,
+      cleanupResult,
+      generatedDocumentsCount: generatedDocumentPaths.length
+    });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Doc generation/upload failed' });
   }
