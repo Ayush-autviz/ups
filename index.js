@@ -53,7 +53,7 @@ async function getUpsAccessToken() {
 }
 
 async function createUpsShipmentReal(shipmentData) {
-  console.log(shipmentData,'shipmetdata')
+ // console.log(shipmentData,'shipmetdata')
   const accessToken = await getUpsAccessToken();
   console.log(accessToken,'accessToken');
   if (!accessToken) return null;
@@ -108,10 +108,12 @@ async function createUpsShipmentReal(shipmentData) {
         ShipTo: {
           Name: shipTo.name || '',
           Address: {
-            AddressLine: [shipTo.addressLine1, shipTo.addressLine2].filter(Boolean),
+            AddressLine: [
+              [shipTo.addressLine2,shipTo.addressLine1].filter(Boolean).join(', ')
+            ],
             City: shipTo.city || '',
-            StateProvinceCode: shipTo.countryCode || '',
-            PostalCode:  shipTo.postalCode || '',
+            StateProvinceCode: shipTo.province_code,
+            PostalCode:  String(shipTo.postalCode || ''),
             CountryCode: shipTo.countryCode || 'US',
           },
           AttentionName: shipTo.attentionName || shipTo.name || 'Receiver',
@@ -119,7 +121,7 @@ async function createUpsShipmentReal(shipmentData) {
         },
         Description: shipmentData.description || itemsSummary || 'Merchandise',
         Service: {
-          Code: '65', // 03 = Ground (example)
+          Code: '08', // 03 = Ground (example)
           Description: shipmentData.serviceDescription || 'Ground',
         },
         PaymentInformation: {
@@ -128,17 +130,20 @@ async function createUpsShipmentReal(shipmentData) {
             BillShipper: { AccountNumber: accountNumber },
           },
         },
-        Package: (shipmentData.items || []).map((it) => {
-          const weight = it.weightKg != null ? Number(it.weightKg).toFixed(1) : '1.0';
-          const lengthVal = it.length != null ? Number(it.length) : 10;
-          const widthVal  = it.width  != null ? Number(it.width)  : 10;
-          const heightVal = it.height != null ? Number(it.height) : 10;
+        Package: Array.from({ length: shipmentData.number_of_boxes }).map((it) => {
+          console.log(shipmentData.number_of_boxes,'itms inside package');
+         // const weightKg = Number(it.weightKg); // your payload provides "weight" in KG
+
+          const weight = 10.00; // fallback 1 kg if missing
+          const lengthVal = 35;
+          const widthVal  = 35;
+          const heightVal = 35;
   
           return {
-            Description: it.description || ' ',
+            Description: 'Beauty Products',
             Packaging: { 
-              Code: it.packagingCode || '02', 
-              Description: it.packagingDescription || 'Customer Supplied Package' 
+              Code: '02', 
+              Description: 'Customer Supplied Package' 
             },
             Dimensions: {
               UnitOfMeasurement: { Code: 'CM', Description: 'Centimeters' },
@@ -159,6 +164,8 @@ async function createUpsShipmentReal(shipmentData) {
       },
     },
   };
+
+  console.log(payload.ShipmentRequest.Shipment.Package,'payload')
 
   try {
     const res = await axios.post(`${UPS_BASE_URL}/api/shipments/v1/ship`, payload, {
@@ -422,7 +429,7 @@ async function renderInvoiceItemsPdf(items, options) {
 function buildCustomsLinesFromShipment(shipmentData, templateType) {
   const address = shipmentData?.address || {};
   const items = Array.isArray(shipmentData?.items) ? shipmentData.items : [];
-  console.log(items,'items custom')
+ // console.log(items,'items custom')
   const order = shipmentData?.order || {};
   const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
   const itemSummary = items.map((i) => `${i.description || 'Item'} x${i.quantity || 1}`).join('; ');
@@ -539,6 +546,7 @@ app.post('/create-shipment', async (req, res) => {
 
 // Generates customs PDFs from blanks and uploads them to the UPS shipment
 app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
+  console.log('called generate and upload docs');
   const shipmentNumber = req.params.shipmentNumber;
   const shipmentData = req.body || {};
   shipmentData.shipmentNumber = shipmentNumber; // Add shipment number to data
