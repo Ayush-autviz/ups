@@ -196,6 +196,33 @@ async function createUpsShipmentMock(shipmentData) {
   return { shipmentNumber: fakeNumber, raw: { mock: true, shipmentData } };
 }
 
+// Function to find existing GIF files for a shipment number
+function findExistingGifFiles(shipmentNumber) {
+  const gifPaths = [];
+  
+  try {
+    if (fs.existsSync(OUTPUT_DIR)) {
+      const files = fs.readdirSync(OUTPUT_DIR);
+      const gifFiles = files.filter(file => 
+        file.startsWith(`SHIPPING_LABEL_${shipmentNumber}_`) && 
+        file.endsWith('.gif')
+      );
+      
+      gifFiles.forEach(file => {
+        const filePath = path.join(OUTPUT_DIR, file);
+        if (fs.existsSync(filePath)) {
+          gifPaths.push(filePath);
+          console.log(`Found existing GIF file: ${file}`);
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error finding existing GIF files:', error.message);
+  }
+  
+  return gifPaths;
+}
+
 // Function to extract and save GIF shipping labels from UPS response
 async function saveShippingLabelsFromResponse(responseData, shipmentNumber) {
   const savedPaths = [];
@@ -439,6 +466,8 @@ async function sendDocumentsEmail(trackingNumber, documentPaths) {
       filename: path.basename(filePath),
       path: filePath
     }));
+    
+    console.log('Email attachments:', attachments.map(att => ({ filename: att.filename, exists: fs.existsSync(att.path) })));
 
     // Email options
     const mailOptions = {
@@ -693,6 +722,16 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
   
   // Get saved GIF paths from request body (sent from create-shipment response)
   const savedGifPaths = req.body.savedGifPaths || [];
+  
+  // Also try to find existing GIF files in the generated_docs folder for this shipment
+  const existingGifPaths = findExistingGifFiles(shipmentNumber);
+  
+  // Combine both sources (request body and existing files)
+  const allGifPaths = [...savedGifPaths, ...existingGifPaths];
+  
+  console.log('GIF paths from request body:', savedGifPaths);
+  console.log('Existing GIF files found:', existingGifPaths);
+  console.log('Total GIF paths to include:', allGifPaths);
   try {
     // Build lines per template type
     const templateLines = {
@@ -867,8 +906,8 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
       uploadResults.push(result);
     }
 
-    // Combine generated documents with saved GIF shipping labels
-    const allDocumentPaths = [...generatedDocumentPaths, ...savedGifPaths];
+    // Combine generated documents with GIF shipping labels
+    const allDocumentPaths = [...generatedDocumentPaths, ...allGifPaths];
     
     // Send email with all generated documents including GIF shipping labels
     const emailResult = await sendDocumentsEmail(shipmentNumber, allDocumentPaths);
@@ -884,7 +923,7 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
       emailResult,
       cleanupResult,
       generatedDocumentsCount: generatedDocumentPaths.length,
-      shippingLabelsCount: savedGifPaths.length,
+      shippingLabelsCount: allGifPaths.length,
       totalDocumentsEmailed: allDocumentPaths.length
     });
   } catch (err) {
