@@ -569,8 +569,9 @@ async function renderInvoiceItemsPdf(items, options) {
   const html = await ejs.renderFile(templatePath, { pages }, { async: true });
 
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: false,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    executablePath: '/usr/bin/chromium-browser'
   });
   try {
     const page = await browser.newPage();
