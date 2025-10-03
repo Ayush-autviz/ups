@@ -19,8 +19,8 @@ const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
 const PORT = process.env.PORT || 3000;
 const UPS_OAUTH_URL = process.env.UPS_OAUTH_URL || 'https://wwwcie.ups.com/security/v1/oauth/token'; // CIE = sandbox
 const UPS_BASE_URL = process.env.UPS_BASE_URL || 'https://wwwcie.ups.com';
-const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || 'OmVHMj0fI8ydcTwM1zzqRJt7qUKFxThisW2iXhT103xH4tlu';
-const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || 'NGONMZfxH5s0yMgasUA6dzPLvYtqlGzOjVIy5iHEGPhGDV0VVYRWvPwMv2jeq15C';
+const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || 'QsCOuyEZMKjXYOA4qrXAJd8PiYuGCjhXQ4KTAeTiqwRTfBYh';
+const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || 'K4fuGRSaWcpc17aifXIeQEbdgHCb42ARkVELJGlBPIfrhNEjr6vo98DVCgc1ZvcQ';
 const UPS_DOCS_VERSION = process.env.UPS_DOCS_VERSION || 'v1';
 
 // Email Configuration
