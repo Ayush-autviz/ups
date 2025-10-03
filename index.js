@@ -68,7 +68,7 @@ async function createUpsShipmentReal(shipmentData) {
   // Consult UPS Shipping API (Shipments) spec to build the full payload.
   const shipTo = shipmentData.address || {};
   const shipFrom = shipmentData.shipFrom;
-  const accountNumber = process.env.UPS_ACCOUNT_NUMBER || '0AB297';
+  const accountNumber = process.env.UPS_ACCOUNT_NUMBER || '0AB291';
   const accountCountry = (process.env.UPS_ACCOUNT_COUNTRY || shipFrom.countryCode || 'US').toUpperCase();
   const isImperial = ['US', 'PR'].includes(accountCountry);
   const weightUnit = isImperial ? 'LBS' : 'KGS';
