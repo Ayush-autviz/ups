@@ -571,7 +571,7 @@ async function renderInvoiceItemsPdf(items, options) {
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    executablePath: '/usr/bin/chromium-browser'
+ ///  executablePath: '/usr/bin/chromium-browser'
   });
   try {
     const page = await browser.newPage();
@@ -720,6 +720,8 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
   const shipmentNumber = req.params.shipmentNumber;
   const shipmentData = req.body || {};
   shipmentData.shipmentNumber = shipmentNumber; // Add shipment number to data
+
+  console.log(shipmentData.items,'shipmentData');
   
   // Get saved GIF paths from request body (sent from create-shipment response)
   const savedGifPaths = req.body.savedGifPaths || [];

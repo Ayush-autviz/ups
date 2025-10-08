@@ -45,7 +45,12 @@
             <tr>
               <td><%= item.quantity || 1 %></td>
               <td><%= item.unit || 'PCS' %></td>
-              <td><%= item.description || '' %></td>
+              <td>
+                <%= item.description || '' %>
+                <% if (item.question) { %>
+                  <br><br><%= item.question %>
+                <% } %>
+              </td>
               <td class="mono"><%= item.harmonizedCode || '' %></td>
               <td><%= item.countryOfOrigin || '' %></td>
               <td><%= item.manufacturer_name || '' %></td>
