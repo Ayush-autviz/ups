@@ -1,44 +1,49 @@
-'use strict';
+"use strict";
 
 // Server & utilities
-const express = require('express');
-const axios = require('axios');
-const fs = require('fs');
-const fse = require('fs-extra');
-const path = require('path');
-const FormData = require('form-data');
-const ejs = require('ejs');
-const puppeteer = require('puppeteer');
-const nodemailer = require('nodemailer');
-require('dotenv').config();
+const express = require("express");
+const axios = require("axios");
+const fs = require("fs");
+const fse = require("fs-extra");
+const path = require("path");
+const FormData = require("form-data");
+const ejs = require("ejs");
+const puppeteer = require("puppeteer");
+const nodemailer = require("nodemailer");
+require("dotenv").config();
 
 // PDF tooling
-const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
 
 // Configuration
 const PORT = process.env.PORT || 3000;
-const UPS_OAUTH_URL = process.env.UPS_OAUTH_URL || 'https://wwwcie.ups.com/security/v1/oauth/token'; // CIE = sandbox
-const UPS_BASE_URL = process.env.UPS_BASE_URL || 'https://wwwcie.ups.com';
-const UPS_CLIENT_ID = process.env.UPS_CLIENT_ID || 'QsCOuyEZMKjXYOA4qrXAJd8PiYuGCjhXQ4KTAeTiqwRTfBYh';
-const UPS_CLIENT_SECRET = process.env.UPS_CLIENT_SECRET || 'K4fuGRSaWcpc17aifXIeQEbdgHCb42ARkVELJGlBPIfrhNEjr6vo98DVCgc1ZvcQ';
-const UPS_DOCS_VERSION = process.env.UPS_DOCS_VERSION || 'v1';
+const UPS_OAUTH_URL =
+  process.env.UPS_OAUTH_URL || "https://wwwcie.ups.com/security/v1/oauth/token"; // CIE = sandbox
+const UPS_BASE_URL = process.env.UPS_BASE_URL || "https://wwwcie.ups.com";
+const UPS_CLIENT_ID =
+  process.env.UPS_CLIENT_ID ||
+  "QsCOuyEZMKjXYOA4qrXAJd8PiYuGCjhXQ4KTAeTiqwRTfBYh";
+const UPS_CLIENT_SECRET =
+  process.env.UPS_CLIENT_SECRET ||
+  "K4fuGRSaWcpc17aifXIeQEbdgHCb42ARkVELJGlBPIfrhNEjr6vo98DVCgc1ZvcQ";
+const UPS_DOCS_VERSION = process.env.UPS_DOCS_VERSION || "v1";
 
 // Email Configuration
-const EMAIL_USER = process.env.EMAIL_USER || '';
-const EMAIL_PASS = process.env.EMAIL_PASS || '';
-const EMAIL_TO = process.env.EMAIL_TO || '';
+const EMAIL_USER = process.env.EMAIL_USER || "";
+const EMAIL_PASS = process.env.EMAIL_PASS || "";
+const EMAIL_TO = process.env.EMAIL_TO || "";
 
 // Paths
 const ROOT_DIR = __dirname;
-const BLANKS_DIR = path.join(ROOT_DIR, 'CUSTOMS_DOCs_BLANK');
-const OUTPUT_DIR = path.join(ROOT_DIR, 'generated_docs');
-const TEMPLATES_DIR = path.join(ROOT_DIR, 'templates');
+const BLANKS_DIR = path.join(ROOT_DIR, "CUSTOMS_DOCs_BLANK");
+const OUTPUT_DIR = path.join(ROOT_DIR, "generated_docs");
+const TEMPLATES_DIR = path.join(ROOT_DIR, "templates");
 
 // Ensure output directory exists
 fse.ensureDirSync(OUTPUT_DIR);
 
 const app = express();
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: "10mb" }));
 
 // ---- Helpers ----
 
@@ -47,147 +52,191 @@ async function getUpsAccessToken() {
     return null; // no creds provided; run in mock mode
   }
   const params = new URLSearchParams();
-  params.append('grant_type', 'client_credentials');
-  const authHeader = Buffer.from(`${UPS_CLIENT_ID}:${UPS_CLIENT_SECRET}`).toString('base64');
+  params.append("grant_type", "client_credentials");
+  const authHeader = Buffer.from(
+    `${UPS_CLIENT_ID}:${UPS_CLIENT_SECRET}`
+  ).toString("base64");
   const res = await axios.post(UPS_OAUTH_URL, params, {
     headers: {
       Authorization: `Basic ${authHeader}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
+      "Content-Type": "application/x-www-form-urlencoded",
     },
   });
   return res.data.access_token;
 }
 
 async function createUpsShipmentReal(shipmentData) {
- // console.log(shipmentData,'shipmetdata')
+  // console.log(shipmentData,'shipmetdata')
   const accessToken = await getUpsAccessToken();
-  console.log(accessToken,'accessToken');
+  console.log(accessToken, "accessToken");
   if (!accessToken) return null;
 
   // NOTE: This is a placeholder for a real UPS shipment creation request body.
   // Consult UPS Shipping API (Shipments) spec to build the full payload.
   const shipTo = shipmentData.address || {};
   const shipFrom = shipmentData.shipFrom;
-  const accountNumber = process.env.UPS_ACCOUNT_NUMBER || '0AB291';
-  const accountCountry = (process.env.UPS_ACCOUNT_COUNTRY || shipFrom.countryCode || 'US').toUpperCase();
-  const isImperial = ['US', 'PR'].includes(accountCountry);
-  const weightUnit = isImperial ? 'LBS' : 'KGS';
-  const dimUnit = isImperial ? 'IN' : 'CM';
+  const accountNumber = process.env.UPS_ACCOUNT_NUMBER || "0AB291";
+  const accountCountry = (
+    process.env.UPS_ACCOUNT_COUNTRY ||
+    shipFrom.countryCode ||
+    "US"
+  ).toUpperCase();
+  const isImperial = ["US", "PR"].includes(accountCountry);
+  const weightUnit = isImperial ? "LBS" : "KGS";
+  const dimUnit = isImperial ? "IN" : "CM";
 
   const itemsSummary = (shipmentData.items || [])
-    .map((it) => `${it.description || 'Item'} x${it.quantity || 1}`)
-    .join('; ');
+    .map((it) => `${it.description || "Item"} x${it.quantity || 1}`)
+    .join("; ");
 
   const payload = {
     ShipmentRequest: {
       Request: {
-        SubVersion: '1801',
-        RequestOption: 'nonvalidate',
-        TransactionReference: { CustomerContext: shipmentData.customerContext || '' },
+        SubVersion: "1801",
+        RequestOption: "nonvalidate",
+        TransactionReference: {
+          CustomerContext: shipmentData.customerContext || "",
+        },
       },
       Shipment: {
         Shipper: {
-          Name: shipmentData.shipperName || 'Your Company',
+          Name: shipmentData.shipperName || "Your Company",
           ShipperNumber: accountNumber,
           Address: {
-            AddressLine: [shipFrom.addressLine1, shipFrom.addressLine2].filter(Boolean),
-            City: shipFrom.city || '',
-            StateProvinceCode: shipFrom.state || '',
-            PostalCode: shipFrom.postalCode || '',
+            AddressLine: [shipFrom.addressLine1, shipFrom.addressLine2].filter(
+              Boolean
+            ),
+            City: shipFrom.city || "",
+            StateProvinceCode: shipFrom.state || "",
+            PostalCode: shipFrom.postalCode || "",
             CountryCode: accountCountry,
           },
-          AttentionName: shipFrom.attentionName || shipFrom.name || shipmentData.shipperName || 'Shipping Dept',
-          Phone: { Number: (shipFrom.phone || shipmentData.shipperPhone || '0000000000').replace(/[^0-9]/g, '').slice(0,15) },
+          AttentionName:
+            shipFrom.attentionName ||
+            shipFrom.name ||
+            shipmentData.shipperName ||
+            "Shipping Dept",
+          Phone: {
+            Number: (
+              shipFrom.phone ||
+              shipmentData.shipperPhone ||
+              "0000000000"
+            )
+              .replace(/[^0-9]/g, "")
+              .slice(0, 15),
+          },
         },
         ShipFrom: {
-          Name: shipFrom.name || shipmentData.shipperName || 'Your Company',
+          Name: shipFrom.name || shipmentData.shipperName || "Your Company",
           Address: {
-            AddressLine: [shipFrom.addressLine1, shipFrom.addressLine2].filter(Boolean),
-            City: shipFrom.city || '',
-            StateProvinceCode: shipFrom.state || '',
-            PostalCode: shipFrom.postalCode || '',
+            AddressLine: [shipFrom.addressLine1, shipFrom.addressLine2].filter(
+              Boolean
+            ),
+            City: shipFrom.city || "",
+            StateProvinceCode: shipFrom.state || "",
+            PostalCode: shipFrom.postalCode || "",
             CountryCode: accountCountry,
           },
-          AttentionName: shipFrom.attentionName || shipFrom.name || 'Warehouse',
-          Phone: { Number: (shipFrom.phone || shipmentData.shipperPhone || '0000000000') },
+          AttentionName: shipFrom.attentionName || shipFrom.name || "Warehouse",
+          Phone: {
+            Number: shipFrom.phone || shipmentData.shipperPhone || "0000000000",
+          },
         },
         ShipTo: {
-          Name: shipTo.name || '',
+          Name: shipTo.name || "",
           Address: {
             AddressLine: [
-              [shipTo.addressLine2,shipTo.addressLine1].filter(Boolean).join(', ')
+              [shipTo.addressLine2, shipTo.addressLine1]
+                .filter(Boolean)
+                .join(", "),
             ],
-            City: shipTo.city || '',
+            City: shipTo.city || "",
             StateProvinceCode: shipTo.province_code,
-            PostalCode:  String(shipTo.postalCode || ''),
-            CountryCode: shipTo.countryCode || 'US',
+            PostalCode: String(shipTo.postalCode || ""),
+            CountryCode: shipTo.countryCode || "US",
           },
-          AttentionName: shipTo.attentionName || shipTo.name || 'Receiver',
-          Phone: { Number: (`+${shipTo.phone}` || shipmentData.shipToPhone || '0000000000') },
+          AttentionName: shipTo.attentionName || shipTo.name || "Receiver",
+          Phone: {
+            Number:
+              `+${shipTo.phone}` || shipmentData.shipToPhone || "0000000000",
+          },
         },
-        Description: shipmentData.description || itemsSummary || 'Merchandise',
+        Description: shipmentData.description || itemsSummary || "Merchandise",
         Service: {
-          Code: '08', // 03 = Ground (example)
-          Description: shipmentData.serviceDescription || 'Ground',
+          Code: "08", // 03 = Ground (example)
+          Description: shipmentData.serviceDescription || "Ground",
         },
         PaymentInformation: {
           ShipmentCharge: {
-            Type: '01', // 01 = Transportation
+            Type: "01", // 01 = Transportation
             BillShipper: { AccountNumber: accountNumber },
           },
         },
-        Package: Array.from({ length: shipmentData.number_of_boxes }).map((it) => {
-          console.log(shipmentData.number_of_boxes,'itms inside package');
-         // const weightKg = Number(it.weightKg); // your payload provides "weight" in KG
+        Package: Array.from({ length: shipmentData.number_of_boxes }).map(
+          (it) => {
+            console.log(shipmentData.number_of_boxes, "itms inside package");
+            // const weightKg = Number(it.weightKg); // your payload provides "weight" in KG
 
-          const weight = 10.00; // fallback 1 kg if missing
-          const lengthVal = 35;
-          const widthVal  = 35;
-          const heightVal = 35;
-  
-          return {
-            Description: 'Beauty Products',
-            Packaging: { 
-              Code: '02', 
-              Description: 'Customer Supplied Package' 
-            },
-            Dimensions: {
-              UnitOfMeasurement: { Code: 'CM', Description: 'Centimeters' },
-              Length: String(lengthVal),
-              Width: String(widthVal),
-              Height: String(heightVal),
-            },
-            PackageWeight: {
-              UnitOfMeasurement: { Code: 'KGS', Description: 'Kilograms' },
-              Weight: String(weight),
-            },
-          };
-        }),
+            const weight = 10.0; // fallback 1 kg if missing
+            const lengthVal = 35;
+            const widthVal = 35;
+            const heightVal = 35;
+
+            return {
+              Description: "Beauty Products",
+              Packaging: {
+                Code: "02",
+                Description: "Customer Supplied Package",
+              },
+              Dimensions: {
+                UnitOfMeasurement: { Code: "CM", Description: "Centimeters" },
+                Length: String(lengthVal),
+                Width: String(widthVal),
+                Height: String(heightVal),
+              },
+              PackageWeight: {
+                UnitOfMeasurement: { Code: "KGS", Description: "Kilograms" },
+                Weight: String(weight),
+              },
+            };
+          }
+        ),
       },
       LabelSpecification: {
-        LabelImageFormat: { Code: 'GIF', Description: 'GIF' },
-        HTTPUserAgent: 'Mozilla/4.5',
+        LabelImageFormat: { Code: "GIF", Description: "GIF" },
+        HTTPUserAgent: "Mozilla/4.5",
       },
     },
   };
 
-  console.log(payload.ShipmentRequest.Shipment.Package,'payload')
+  console.log(payload.ShipmentRequest.Shipment.Package, "payload");
 
   try {
-    const res = await axios.post(`${UPS_BASE_URL}/api/shipments/v1/ship`, payload, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    console.log(res.data,'response');
-    const shipmentNumber = res?.data?.ShipmentResponse?.ShipmentResults?.ShipmentIdentificationNumber;
-    
+    const res = await axios.post(
+      `${UPS_BASE_URL}/api/shipments/v1/ship`,
+      payload,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    console.log(res.data, "response");
+    const shipmentNumber =
+      res?.data?.ShipmentResponse?.ShipmentResults
+        ?.ShipmentIdentificationNumber;
+
     // Extract and save GIF shipping labels from the response
-    const savedGifPaths = await saveShippingLabelsFromResponse(res.data, shipmentNumber);
-    
+    const savedGifPaths = await saveShippingLabelsFromResponse(
+      res.data,
+      shipmentNumber
+    );
+
     return { shipmentNumber, raw: res.data, savedGifPaths };
   } catch (err) {
     const status = err.response?.status;
     const data = err.response?.data;
-    throw new Error(`UPS create shipment error ${status || ''}: ${JSON.stringify(data)}`);
+    throw new Error(
+      `UPS create shipment error ${status || ""}: ${JSON.stringify(data)}`
+    );
   }
 }
 
@@ -199,16 +248,17 @@ async function createUpsShipmentMock(shipmentData) {
 // Function to find existing GIF files for a shipment number
 function findExistingGifFiles(shipmentNumber) {
   const gifPaths = [];
-  
+
   try {
     if (fs.existsSync(OUTPUT_DIR)) {
       const files = fs.readdirSync(OUTPUT_DIR);
-      const gifFiles = files.filter(file => 
-        file.startsWith(`SHIPPING_LABEL_${shipmentNumber}_`) && 
-        file.endsWith('.gif')
+      const gifFiles = files.filter(
+        (file) =>
+          file.startsWith(`SHIPPING_LABEL_${shipmentNumber}_`) &&
+          file.endsWith(".gif")
       );
-      
-      gifFiles.forEach(file => {
+
+      gifFiles.forEach((file) => {
         const filePath = path.join(OUTPUT_DIR, file);
         if (fs.existsSync(filePath)) {
           gifPaths.push(filePath);
@@ -217,20 +267,21 @@ function findExistingGifFiles(shipmentNumber) {
       });
     }
   } catch (error) {
-    console.error('Error finding existing GIF files:', error.message);
+    console.error("Error finding existing GIF files:", error.message);
   }
-  
+
   return gifPaths;
 }
 
 // Function to extract and save GIF shipping labels from UPS response
 async function saveShippingLabelsFromResponse(responseData, shipmentNumber) {
   const savedPaths = [];
-  
+
   try {
     // Navigate to the PackageResults in the response
-    const packageResults = responseData?.ShipmentResponse?.ShipmentResults?.PackageResults;
-    
+    const packageResults =
+      responseData?.ShipmentResponse?.ShipmentResults?.PackageResults;
+
     if (packageResults && Array.isArray(packageResults)) {
       packageResults.forEach((pkgResult, index) => {
         // Extract GraphicImage (GIF) data only
@@ -238,28 +289,36 @@ async function saveShippingLabelsFromResponse(responseData, shipmentNumber) {
         if (graphicImage) {
           try {
             // Decode base64 GIF data
-            const gifBuffer = Buffer.from(graphicImage, 'base64');
-            
+            const gifBuffer = Buffer.from(graphicImage, "base64");
+
             // Create filename for the GIF
-            const gifFileName = `SHIPPING_LABEL_${shipmentNumber}_${index + 1}.gif`;
+            const gifFileName = `SHIPPING_LABEL_${shipmentNumber}_${
+              index + 1
+            }.gif`;
             const gifPath = path.join(OUTPUT_DIR, gifFileName);
-            
+
             // Write GIF file
             fs.writeFileSync(gifPath, gifBuffer);
             savedPaths.push(gifPath);
-            
+
             console.log(`Saved shipping label GIF: ${gifFileName}`);
           } catch (gifError) {
-            console.error(`Error saving GIF for package ${index + 1}:`, gifError.message);
+            console.error(
+              `Error saving GIF for package ${index + 1}:`,
+              gifError.message
+            );
           }
         }
       });
     }
-    
+
     console.log(`Total GIF shipping labels saved: ${savedPaths.length}`);
     return savedPaths;
   } catch (error) {
-    console.error('Error extracting shipping labels from response:', error.message);
+    console.error(
+      "Error extracting shipping labels from response:",
+      error.message
+    );
     return [];
   }
 }
@@ -270,13 +329,14 @@ async function upsUploadUserCreatedForm(filePath, options = {}) {
   if (!accessToken) return null;
 
   const fileBuffer = fs.readFileSync(filePath);
-  const base64 = fileBuffer.toString('base64');
-  const ext = path.extname(filePath).replace('.', '').toLowerCase();
+  const base64 = fileBuffer.toString("base64");
+  const ext = path.extname(filePath).replace(".", "").toLowerCase();
   const fileName = options.fileName || path.basename(filePath);
-  const fileFormat = options.fileFormat || (ext || 'pdf');
-  const documentType = options.documentType || '013'; // User Created Form
-  const customerContext = options.customerContext || '';
-  const shipperNumber = options.shipperNumber || process.env.UPS_ACCOUNT_NUMBER || '0AB297';
+  const fileFormat = options.fileFormat || ext || "pdf";
+  const documentType = options.documentType || "013"; // User Created Form
+  const customerContext = options.customerContext || "";
+  const shipperNumber =
+    options.shipperNumber || process.env.UPS_ACCOUNT_NUMBER || "0AB297";
 
   const payload = {
     UploadRequest: {
@@ -287,7 +347,7 @@ async function upsUploadUserCreatedForm(filePath, options = {}) {
           UserCreatedFormFileFormat: fileFormat,
           UserCreatedFormDocumentType: documentType,
           UserCreatedFormFile: base64,
-        }
+        },
       ],
       ShipperNumber: shipperNumber,
     },
@@ -297,13 +357,20 @@ async function upsUploadUserCreatedForm(filePath, options = {}) {
     const res = await axios.post(
       `${UPS_BASE_URL}/api/paperlessdocuments/${UPS_DOCS_VERSION}/upload`,
       payload,
-      { headers: { Authorization: `Bearer ${accessToken}`, ShipperNumber: shipperNumber } }
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          ShipperNumber: shipperNumber,
+        },
+      }
     );
     return res.data;
   } catch (err) {
     const status = err.response?.status;
     const data = err.response?.data;
-    throw new Error(`UPS upload error ${status || ''}: ${JSON.stringify(data)}`);
+    throw new Error(
+      `UPS upload error ${status || ""}: ${JSON.stringify(data)}`
+    );
   }
 }
 
@@ -317,7 +384,7 @@ async function upsPushDocumentToShipment(params) {
     shipmentIdentifier,
     trackingNumber,
     shipmentDateTime, // format: YYYY-MM-DD-HH.MM.SS
-    customerContext = '',
+    customerContext = "",
   } = params;
 
   const payload = {
@@ -326,25 +393,32 @@ async function upsPushDocumentToShipment(params) {
       FormsHistoryDocumentID: { DocumentID: documentId },
       ShipmentIdentifier: shipmentIdentifier,
       ShipmentDateAndTime: shipmentDateTime,
-      ShipmentType: '1',
+      ShipmentType: "1",
       TrackingNumber: trackingNumber,
     },
   };
 
-  const shipperNumber = process.env.UPS_ACCOUNT_NUMBER || '0AB297';
+  const shipperNumber = process.env.UPS_ACCOUNT_NUMBER || "0AB297";
 
   try {
     const res = await axios.post(
       `${UPS_BASE_URL}/api/paperlessdocuments/${UPS_DOCS_VERSION}/image`,
       payload,
-      { headers: { Authorization: `Bearer ${accessToken}`, ShipperNumber: shipperNumber } }
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          ShipperNumber: shipperNumber,
+        },
+      }
     );
-    console.log(res.data,'res.data');
+    console.log(res.data, "res.data");
     return res.data;
   } catch (err) {
     const status = err.response?.status;
     const data = err.response?.data;
-    throw new Error(`UPS push image error ${status || ''}: ${JSON.stringify(data)}`);
+    throw new Error(
+      `UPS push image error ${status || ""}: ${JSON.stringify(data)}`
+    );
   }
 }
 
@@ -359,25 +433,26 @@ async function writeTextOnPdf(inputPath, outputPath, lines) {
   const pageCount = pdfDoc.getPageCount();
 
   for (const line of lines) {
-    const pageIndex = typeof line.page === 'number' ? line.page : 0;
+    const pageIndex = typeof line.page === "number" ? line.page : 0;
     const clampedIndex = Math.min(Math.max(0, pageIndex), pageCount - 1);
     const page = pdfDoc.getPage(clampedIndex);
     const { height } = page.getSize();
 
-    const text = line.text ?? '';
-    const x = typeof line.x === 'number' ? line.x : 40;
-    const y = typeof line.y === 'number' ? line.y : (height - 40);
-    const size = typeof line.size === 'number' ? line.size : 8;
+    const text = line.text ?? "";
+    const x = typeof line.x === "number" ? line.x : 40;
+    const y = typeof line.y === "number" ? line.y : height - 40;
+    const size = typeof line.size === "number" ? line.size : 8;
 
-    if (typeof line.maxWidth === 'number' && line.maxWidth > 0) {
+    if (typeof line.maxWidth === "number" && line.maxWidth > 0) {
       const maxWidth = line.maxWidth;
-      const lineHeight = typeof line.lineHeight === 'number' ? line.lineHeight : 10;
+      const lineHeight =
+        typeof line.lineHeight === "number" ? line.lineHeight : 10;
       const words = String(text).split(/\s+/);
 
-      let curr = '';
+      let curr = "";
       const wrapped = [];
       for (const w of words) {
-        const candidate = curr ? curr + ' ' + w : w;
+        const candidate = curr ? curr + " " + w : w;
         const width = font.widthOfTextAtSize(candidate, size);
         if (width <= maxWidth) {
           curr = candidate;
@@ -402,7 +477,6 @@ async function writeTextOnPdf(inputPath, outputPath, lines) {
   return outputPath;
 }
 
-
 async function mergePdfAppend(basePdfPath, appendPdfPath, outPath) {
   const baseBytes = fs.readFileSync(basePdfPath);
   const appendBytes = fs.readFileSync(appendPdfPath);
@@ -418,14 +492,22 @@ async function mergePdfAppend(basePdfPath, appendPdfPath, outPath) {
   return outPath;
 }
 
-async function mergePdfInsertAfter(basePdfPath, insertPdfPath, insertAfterPageIndex, outPath) {
+async function mergePdfInsertAfter(
+  basePdfPath,
+  insertPdfPath,
+  insertAfterPageIndex,
+  outPath
+) {
   const baseBytes = fs.readFileSync(basePdfPath);
   const insertBytes = fs.readFileSync(insertPdfPath);
 
   const baseDoc = await PDFDocument.load(baseBytes);
   const insertDoc = await PDFDocument.load(insertBytes);
 
-  const insertPages = await baseDoc.copyPages(insertDoc, insertDoc.getPageIndices());
+  const insertPages = await baseDoc.copyPages(
+    insertDoc,
+    insertDoc.getPageIndices()
+  );
   const baseCount = baseDoc.getPageCount();
   const startIndex = Math.min(Math.max(insertAfterPageIndex + 1, 0), baseCount);
 
@@ -440,34 +522,41 @@ async function mergePdfInsertAfter(basePdfPath, insertPdfPath, insertAfterPageIn
 
 function chunkArray(arr, size) {
   const chunks = [];
-  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
+  for (let i = 0; i < arr.length; i += size)
+    chunks.push(arr.slice(i, i + size));
   return chunks;
 }
 
 // Email functionality
 async function sendDocumentsEmail(trackingNumber, documentPaths) {
   if (!EMAIL_USER || !EMAIL_PASS || !EMAIL_TO) {
-    console.log('Email configuration missing. Skipping email send.');
-    return { success: false, message: 'Email configuration missing' };
+    console.log("Email configuration missing. Skipping email send.");
+    return { success: false, message: "Email configuration missing" };
   }
 
   try {
     // Create transporter for Gmail SMTP
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      service: "gmail",
       auth: {
         user: EMAIL_USER,
-        pass: EMAIL_PASS
-      }
+        pass: EMAIL_PASS,
+      },
     });
 
     // Prepare attachments
-    const attachments = documentPaths.map(filePath => ({
+    const attachments = documentPaths.map((filePath) => ({
       filename: path.basename(filePath),
-      path: filePath
+      path: filePath,
     }));
-    
-    console.log('Email attachments:', attachments.map(att => ({ filename: att.filename, exists: fs.existsSync(att.path) })));
+
+    console.log(
+      "Email attachments:",
+      attachments.map((att) => ({
+        filename: att.filename,
+        exists: fs.existsSync(att.path),
+      }))
+    );
 
     // Email options
     const mailOptions = {
@@ -480,12 +569,16 @@ async function sendDocumentsEmail(trackingNumber, documentPaths) {
         <p><strong>Tracking Number:</strong> ${trackingNumber}</p>
         <p>Please find the attached shipping documents below:</p>
         <ul>
-          ${documentPaths.map(filePath => {
-            const fileName = path.basename(filePath);
-            const isShippingLabel = fileName.includes('SHIPPING_LABEL');
-            const fileType = path.extname(filePath).toUpperCase();
-            return `<li>${fileName} ${isShippingLabel ? `(${fileType} Shipping Label)` : ''}</li>`;
-          }).join('')}
+          ${documentPaths
+            .map((filePath) => {
+              const fileName = path.basename(filePath);
+              const isShippingLabel = fileName.includes("SHIPPING_LABEL");
+              const fileType = path.extname(filePath).toUpperCase();
+              return `<li>${fileName} ${
+                isShippingLabel ? `(${fileType} Shipping Label)` : ""
+              }</li>`;
+            })
+            .join("")}
         </ul>
         <p>This email includes:</p>
         <ul>
@@ -495,15 +588,15 @@ async function sendDocumentsEmail(trackingNumber, documentPaths) {
         </ul>
         <p>Thank you for using our shipping service.</p>
       `,
-      attachments: attachments
+      attachments: attachments,
     };
 
     // Send email
     const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent successfully:', info.messageId);
+    console.log("Email sent successfully:", info.messageId);
     return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error('Error sending email:', error);
+    console.error("Error sending email:", error);
     return { success: false, error: error.message };
   }
 }
@@ -513,19 +606,19 @@ function cleanupGeneratedDocs() {
   try {
     if (fs.existsSync(OUTPUT_DIR)) {
       const files = fs.readdirSync(OUTPUT_DIR);
-      files.forEach(file => {
+      files.forEach((file) => {
         const filePath = path.join(OUTPUT_DIR, file);
         if (fs.statSync(filePath).isFile()) {
           fs.unlinkSync(filePath);
           console.log(`Deleted file: ${file}`);
         }
       });
-      console.log('Generated docs folder cleaned up successfully');
-      return { success: true, message: 'Generated docs folder cleaned up' };
+      console.log("Generated docs folder cleaned up successfully");
+      return { success: true, message: "Generated docs folder cleaned up" };
     }
-    return { success: true, message: 'Generated docs folder does not exist' };
+    return { success: true, message: "Generated docs folder does not exist" };
   } catch (error) {
-    console.error('Error cleaning up generated docs:', error);
+    console.error("Error cleaning up generated docs:", error);
     return { success: false, error: error.message };
   }
 }
@@ -557,29 +650,29 @@ async function fillPdfForm(pdfPath, lines) {
 
 async function renderInvoiceItemsPdf(items, options) {
   const {
-    shipmentNumber = 'UNKNOWN',
-    pageSize = 'Letter',
+    shipmentNumber = "UNKNOWN",
+    pageSize = "Letter",
     rowsPerPage = 28,
     outputDir = OUTPUT_DIR,
   } = options || {};
 
-  const templatePath = path.join(TEMPLATES_DIR, 'invoice_dynamic.ejs');
+  const templatePath = path.join(TEMPLATES_DIR, "invoice_dynamic.ejs");
   const pages = chunkArray(Array.isArray(items) ? items : [], rowsPerPage);
 
   const html = await ejs.renderFile(templatePath, { pages }, { async: true });
 
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    executablePath: '/usr/bin/chromium-browser'
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    executablePath: "/usr/bin/chromium-browser",
   });
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+    await page.setContent(html, { waitUntil: "networkidle0" });
     const pdfBuffer = await page.pdf({
       format: pageSize,
       printBackground: true,
-      margin: { top: '20px', right: '20px', bottom: '20px', left: '20px' },
+      margin: { top: "20px", right: "20px", bottom: "20px", left: "20px" },
     });
     const outPath = path.join(outputDir, `INVOICE_ITEMS_${shipmentNumber}.pdf`);
     fs.writeFileSync(outPath, pdfBuffer);
@@ -589,15 +682,19 @@ async function renderInvoiceItemsPdf(items, options) {
   }
 }
 
-
-
 function buildCustomsLinesFromShipment(shipmentData, templateType) {
   const address = shipmentData?.address || {};
   const items = Array.isArray(shipmentData?.items) ? shipmentData.items : [];
- // console.log(items,'items custom')
+  // console.log(items,'items custom')
   const order = shipmentData?.order || {};
-  const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
-  const itemSummary = items.map((i) => `${i.description || 'Item'} x${i.quantity || 1}`).join('; ');
+  const currentDate = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const itemSummary = items
+    .map((i) => `${i.description || "Item"} x${i.quantity || 1}`)
+    .join("; ");
 
   // Calculate totals
   const invoiceSubtotal = order.invoice_subtotal || order.subtotal || 0;
@@ -606,20 +703,23 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
   const insurance = order.insurance || 0;
   const others = order.others || 0;
   const weight = order.weight;
-  const totalInvoiceAmount = order.total_invoice_amount || order.total || (invoiceSubtotal - discountRebate + freight + insurance + others);
-  const invoiceNumber = "INV-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
+  const totalInvoiceAmount =
+    order.total_invoice_amount ||
+    order.total ||
+    invoiceSubtotal - discountRebate + freight + insurance + others;
+  const invoiceNumber =
+    "INV-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
 
-  if (templateType === 'INVOICES') {
+  if (templateType === "INVOICES") {
     // Hybrid mode: only static fields here; items will be rendered via HTML → PDF
     return [
       // Address fields
-      { text: `${address.name || ''}`, x: 84, y: 512 },
-      { text: `${address.addressLine1 || ''}`, x: 23, y: 500 },
-      { text: `${address.city || ''}`, x: 23, y: 488 },
-      { text: `${address.countryCode || ''}`, x: 23, y: 476 },
-      { text: `${currentDate}`, x:333, y: 655 },
-      { text: `${invoiceNumber}`, x:358, y: 645 },
-
+      { text: `${address.name || ""}`, x: 84, y: 512 },
+      { text: `${address.addressLine1 || ""}`, x: 23, y: 500 },
+      { text: `${address.city || ""}`, x: 23, y: 488 },
+      { text: `${address.countryCode || ""}`, x: 23, y: 476 },
+      { text: `${currentDate}`, x: 333, y: 655 },
+      { text: `${invoiceNumber}`, x: 358, y: 645 },
 
       // Invoice totals
       { text: `${invoiceSubtotal}`, x: 448, y: 690, page: 1 },
@@ -629,59 +729,56 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
       { text: `${insurance}`, x: 448, y: 635, page: 1 },
       { text: `${others}`, x: 448, y: 622, page: 1 },
       { text: `${totalInvoiceAmount}`, x: 448, y: 608, page: 1 },
-      { text: `${shipmentData.shipmentNumber || ''}`, x: 359, y: 712 },
-      { text: `${weight || ''}`, x: 448, y: 577, page:1},
-      { text: `${items.length || ''}`, x: 448, y: 589, page:1},
-
+      { text: `${shipmentData.shipmentNumber || ""}`, x: 359, y: 712 },
+      { text: `${weight || ""}`, x: 448, y: 577, page: 1 },
+      { text: `${items.length || ""}`, x: 448, y: 589, page: 1 },
     ];
   }
 
-  if (templateType === 'TSCA') {
+  if (templateType === "TSCA") {
     // Write products directly into the blank TSCA template
     const lines = [
-      { text: `${shipmentData.shipmentNumber || ''}`, x: 240, y: 127 },
+      { text: `${shipmentData.shipmentNumber || ""}`, x: 240, y: 127 },
       { text: `${currentDate}`, x: 327, y: 720 },
     ];
-    
+
     // Filter items to only include those where isTSCA is "Yes"
-    const tscaItems = items.filter(item => item.isTSCA === 'Yes');
-    
+    const tscaItems = items.filter((item) => item.isTSCA === "Yes");
+
     // Add up to 4 products to the TSCA form
     // These coordinates are approximate - you may need to adjust based on the actual TSCA template
     const productYPositions = [539, 554, 569, 584]; // Y positions for 4 product lines
-    
+
     tscaItems.slice(0, 4).forEach((item, index) => {
-      const description = item.description || '';
-      const words = description.split(' ').slice(0, 4).join(' ');
-      const hsCode = item.harmonizedCode || item.harmonizedCode || '';
-      
+      const description = item.description || "";
+      const words = description.split(" ").slice(0, 4).join(" ");
+      const hsCode = item.harmonizedCode || item.harmonizedCode || "";
+
       // Add product description
       lines.push({
         text: words,
         x: 50, // X position for product description
-        y: productYPositions[index]
+        y: productYPositions[index],
       });
-      
+
       // Add HS code at x=100 with same y coordinate
       lines.push({
         text: hsCode,
         x: 410,
-        y: productYPositions[index]
+        y: productYPositions[index],
       });
     });
-    
+
     return lines;
   }
 
-  if (templateType === '232_FORM') {
-    return [
-      { text: `${currentDate}`, x:77, y: 690 },
-    ];
+  if (templateType === "232_FORM") {
+    return [{ text: `${currentDate}`, x: 77, y: 690 }];
   }
 
   // Default fallback
   return [
-    { text: `${address.name || ''}`, x: 84, y: 512 },
+    { text: `${address.name || ""}`, x: 84, y: 512 },
     { text: `${itemSummary}`, x: 30, y: 432 },
   ];
 }
@@ -689,64 +786,70 @@ function buildCustomsLinesFromShipment(shipmentData, templateType) {
 // ---- Routes ----
 
 // Creates a UPS shipment (real if credentials exist, mock otherwise)
-app.post('/create-shipment', async (req, res) => {
+app.post("/create-shipment", async (req, res) => {
   try {
     const shipmentData = req.body?.shipmentData || {};
     let result;
     try {
       result = await createUpsShipmentReal(shipmentData);
-      console.log(result.raw.ShipmentResponse,'result of creat');
+      console.log(result.raw.ShipmentResponse, "result of creat");
     } catch (realErr) {
       // fall back to mock if real fails or no creds
       if (UPS_CLIENT_ID && UPS_CLIENT_SECRET) {
         console.error(realErr.message);
       }
-     // result = await createUpsShipmentMock(shipmentData);
+      // result = await createUpsShipmentMock(shipmentData);
     }
 
-    res.json({ 
-      shipmentNumber: result.shipmentNumber, 
+    res.json({
+      shipmentNumber: result.shipmentNumber,
       raw: result.raw,
-      savedGifPaths: result.savedGifPaths || []
+      savedGifPaths: result.savedGifPaths || [],
     });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Create shipment failed' });
+    res.status(500).json({ error: err.message || "Create shipment failed" });
   }
 });
 
 // Generates customs PDFs from blanks and uploads them to the UPS shipment
-app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
-  console.log('called generate and upload docs');
+app.post("/generate-and-upload-docs/:shipmentNumber", async (req, res) => {
+  console.log("called generate and upload docs");
   const shipmentNumber = req.params.shipmentNumber;
   const shipmentData = req.body || {};
   shipmentData.shipmentNumber = shipmentNumber; // Add shipment number to data
 
-  console.log(shipmentData.items,'shipmentData');
-  
+  console.log(shipmentData.items, "shipmentData");
+
   // Get saved GIF paths from request body (sent from create-shipment response)
   const savedGifPaths = req.body.savedGifPaths || [];
-  
+
   // Also try to find existing GIF files in the generated_docs folder for this shipment
   const existingGifPaths = findExistingGifFiles(shipmentNumber);
-  
+
   // Combine both sources (request body and existing files)
   const allGifPaths = [...savedGifPaths, ...existingGifPaths];
-  
-  console.log('GIF paths from request body:', savedGifPaths);
-  console.log('Existing GIF files found:', existingGifPaths);
-  console.log('Total GIF paths to include:', allGifPaths);
+
+  console.log("GIF paths from request body:", savedGifPaths);
+  console.log("Existing GIF files found:", existingGifPaths);
+  console.log("Total GIF paths to include:", allGifPaths);
   try {
     // Build lines per template type
     const templateLines = {
-      'INVOICES_BLANK.pdf': buildCustomsLinesFromShipment(shipmentData, 'INVOICES'),
-      'TSCA_BLANK.pdf': buildCustomsLinesFromShipment(shipmentData, 'TSCA'),
-      '232_FORM_BLANK.pdf': buildCustomsLinesFromShipment(shipmentData, '232_FORM'),
+      "INVOICES_BLANK.pdf": buildCustomsLinesFromShipment(
+        shipmentData,
+        "INVOICES"
+      ),
+      "TSCA_BLANK.pdf": buildCustomsLinesFromShipment(shipmentData, "TSCA"),
+      "232_FORM_BLANK.pdf": buildCustomsLinesFromShipment(
+        shipmentData,
+        "232_FORM"
+      ),
     };
 
     const blanks = [
-      { file: 'INVOICES_BLANK.pdf', type: 'COMMERCIAL_INVOICE' },
-      { file: '232_FORM_BLANK.pdf', type: 'OTHER' },
-      { file: 'TSCA_BLANK.pdf', type: 'OTHER' },
+      { file: "INVOICES_BLANK.pdf", type: "COMMERCIAL_INVOICE" },
+      { file: "232_FORM_BLANK.pdf", type: "OTHER" },
+      { file: "TSCA_BLANK.pdf", type: "OTHER" },
     ];
 
     const uploadResults = [];
@@ -761,45 +864,57 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
       if (!fs.existsSync(inputPath)) {
         throw new Error(`Missing template: ${inputPath}`);
       }
-     if (blank.file !== 'TSCA_BLANK.pdf') {
-      await writeTextOnPdf(inputPath, outputPath, templateLines[blank.file] || []);
-      generatedDocumentPaths.push(outputPath);
-     }
-     
+      if (blank.file !== "TSCA_BLANK.pdf") {
+        await writeTextOnPdf(
+          inputPath,
+          outputPath,
+          templateLines[blank.file] || []
+        );
+        generatedDocumentPaths.push(outputPath);
+      }
 
       // Hybrid flow for INVOICE: generate paginated items via HTML and append to invoice template
-      if (blank.file === 'INVOICES_BLANK.pdf') {
-        const itemsPdfPath = await renderInvoiceItemsPdf(shipmentData.items || [], {
-          shipmentNumber,
-          rowsPerPage: 28,
-          pageSize: 'Letter',
-          outputDir: OUTPUT_DIR,
-        });
-        const mergedPath = path.join(OUTPUT_DIR, `${path.parse(blank.file).name}_${shipmentNumber}_MERGED.pdf`);
+      if (blank.file === "INVOICES_BLANK.pdf") {
+        const itemsPdfPath = await renderInvoiceItemsPdf(
+          shipmentData.items || [],
+          {
+            shipmentNumber,
+            rowsPerPage: 28,
+            pageSize: "Letter",
+            outputDir: OUTPUT_DIR,
+          }
+        );
+        const mergedPath = path.join(
+          OUTPUT_DIR,
+          `${path.parse(blank.file).name}_${shipmentNumber}_MERGED.pdf`
+        );
         // Insert items pages after page 1 (index 0) so base page 2 remains last
         await mergePdfInsertAfter(outputPath, itemsPdfPath, 0, mergedPath);
         // Replace outputPath with mergedPath for upload
         fse.moveSync(mergedPath, outputPath, { overwrite: true });
       }
 
-      if (blank.file === 'TSCA_BLANK.pdf') {
+      if (blank.file === "TSCA_BLANK.pdf") {
         // Create multiple TSCA forms with max 4 products each, written directly into blank template
         const items = shipmentData.items || [];
         // Filter items to only include those where isTSCA is "Yes"
-        const tscaItems = items.filter(item => item.isTSCA === 'Yes');
+        const tscaItems = items.filter((item) => item.isTSCA === "Yes");
         const maxProductsPerForm = 4;
-        
+
         // Split filtered TSCA items into groups of max 4
         const itemGroups = [];
         for (let i = 0; i < tscaItems.length; i += maxProductsPerForm) {
           itemGroups.push(tscaItems.slice(i, i + maxProductsPerForm));
         }
-        
+
         // Process each TSCA form separately
         for (let i = 0; i < itemGroups.length; i++) {
-          const formNumber = itemGroups.length > 1 ? `_${i + 1}` : '';
-          const finalOutputPath = path.join(OUTPUT_DIR, `${path.parse(blank.file).name}_${shipmentNumber}${formNumber}.pdf`);
-          
+          const formNumber = itemGroups.length > 1 ? `_${i + 1}` : "";
+          const finalOutputPath = path.join(
+            OUTPUT_DIR,
+            `${path.parse(blank.file).name}_${shipmentNumber}${formNumber}.pdf`
+          );
+
           // Copy the base TSCA form for each product group.
           // Use the original blank as the source, and avoid copying when source and destination are the same.
           const sourcePath = inputPath; // always copy from the original blank template
@@ -811,36 +926,44 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
               fse.copySync(sourcePath, outputPath);
             }
           }
-          
+
           // Add TSCA form path to generated documents array
           generatedDocumentPaths.push(finalOutputPath);
-          
+
           // Create a modified shipment data with only the products for this form
           const formShipmentData = {
             ...shipmentData,
-            items: itemGroups[i]
+            items: itemGroups[i],
           };
-          
+
           // Fill the TSCA form with products written directly into the blank template
-          const tscaLines = buildCustomsLinesFromShipment(formShipmentData, 'TSCA');
+          const tscaLines = buildCustomsLinesFromShipment(
+            formShipmentData,
+            "TSCA"
+          );
           await fillPdfForm(finalOutputPath, tscaLines);
-          
+
           // Upload each TSCA form separately
           try {
             const uploadRes = await upsUploadUserCreatedForm(finalOutputPath, {
               fileName: path.basename(finalOutputPath),
-              fileFormat: 'pdf',
-              documentType: '013',
-              customerContext: shipmentData.customerContext || '',
+              fileFormat: "pdf",
+              documentType: "013",
+              customerContext: shipmentData.customerContext || "",
             });
             console.log(`TSCA Form ${i + 1} upload result:`, uploadRes);
-            const documentId = uploadRes?.UploadResponse?.FormsHistoryDocumentID?.DocumentID;
-            
+            const documentId =
+              uploadRes?.UploadResponse?.FormsHistoryDocumentID?.DocumentID;
+
             // Build shipment date/time in required format
             const now = new Date();
-            const pad = (n) => String(n).padStart(2, '0');
-            const shipmentDateTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`;
-            
+            const pad = (n) => String(n).padStart(2, "0");
+            const shipmentDateTime = `${now.getFullYear()}-${pad(
+              now.getMonth() + 1
+            )}-${pad(now.getDate())}-${pad(now.getHours())}.${pad(
+              now.getMinutes()
+            )}.${pad(now.getSeconds())}`;
+
             // Push TSCA form to shipment
             if (documentId) {
               const pushRes = await upsPushDocumentToShipment({
@@ -848,11 +971,11 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
                 shipmentIdentifier: shipmentNumber,
                 trackingNumber: shipmentData.trackingNumber || shipmentNumber,
                 shipmentDateTime,
-                customerContext: shipmentData.customerContext || '',
+                customerContext: shipmentData.customerContext || "",
               });
-              
+
               console.log(`TSCA Form ${i + 1} push result:`, pushRes);
-              
+
               // Add to upload results
               uploadResults.push({
                 template: `TSCA_BLANK.pdf (Form ${i + 1})`,
@@ -862,10 +985,13 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
               });
             }
           } catch (uploadErr) {
-            console.error(`Failed to upload TSCA form ${i + 1}:`, uploadErr.message);
+            console.error(
+              `Failed to upload TSCA form ${i + 1}:`,
+              uploadErr.message
+            );
           }
         }
-        
+
         // Skip the normal processing for TSCA since we handled it above
         continue;
       }
@@ -874,27 +1000,32 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
       try {
         const uploadRes = await upsUploadUserCreatedForm(outputPath, {
           fileName: path.basename(outputPath),
-          fileFormat: 'pdf',
-          documentType: '013',
-          customerContext: shipmentData.customerContext || '',
+          fileFormat: "pdf",
+          documentType: "013",
+          customerContext: shipmentData.customerContext || "",
         });
-        console.log(uploadRes,'uploadRes');
-        const documentId = uploadRes?.UploadResponse?.FormsHistoryDocumentID?.DocumentID;
+        console.log(uploadRes, "uploadRes");
+        const documentId =
+          uploadRes?.UploadResponse?.FormsHistoryDocumentID?.DocumentID;
 
         // Build shipment date/time in required format
         const now = new Date();
-        const pad = (n) => String(n).padStart(2, '0');
-        const shipmentDateTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}-${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`;
+        const pad = (n) => String(n).padStart(2, "0");
+        const shipmentDateTime = `${now.getFullYear()}-${pad(
+          now.getMonth() + 1
+        )}-${pad(now.getDate())}-${pad(now.getHours())}.${pad(
+          now.getMinutes()
+        )}.${pad(now.getSeconds())}`;
 
         const pushRes = await upsPushDocumentToShipment({
           documentId,
           shipmentIdentifier: shipmentNumber,
           trackingNumber: shipmentData.trackingNumber || shipmentNumber,
           shipmentDateTime,
-          customerContext: shipmentData.customerContext || '',
+          customerContext: shipmentData.customerContext || "",
         });
 
-        console.log(pushRes,'pushRes');
+        console.log(pushRes, "pushRes");
 
         result.uploadResponse = uploadRes;
         result.pushResponse = pushRes;
@@ -902,7 +1033,7 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
         if (UPS_CLIENT_ID && UPS_CLIENT_SECRET) {
           console.error(err.message);
         }
-       // const mock = await uploadDocumentToUpsMock(shipmentNumber, outputPath, blank.type);
+        // const mock = await uploadDocumentToUpsMock(shipmentNumber, outputPath, blank.type);
         //result.uploadResponse = mock;
       }
 
@@ -911,35 +1042,38 @@ app.post('/generate-and-upload-docs/:shipmentNumber', async (req, res) => {
 
     // Combine generated documents with GIF shipping labels
     const allDocumentPaths = [...generatedDocumentPaths, ...allGifPaths];
-    
+
     // Send email with all generated documents including GIF shipping labels
-    const emailResult = await sendDocumentsEmail(shipmentNumber, allDocumentPaths);
-    console.log('Email result:', emailResult);
+    const emailResult = await sendDocumentsEmail(
+      shipmentNumber,
+      allDocumentPaths
+    );
+    console.log("Email result:", emailResult);
 
     // Clean up generated documents folder after email is sent
     const cleanupResult = cleanupGeneratedDocs();
-    console.log('Cleanup result:', cleanupResult);
+    console.log("Cleanup result:", cleanupResult);
 
-    res.json({ 
-      shipmentNumber, 
-      uploadResults, 
+    res.json({
+      shipmentNumber,
+      uploadResults,
       emailResult,
       cleanupResult,
       generatedDocumentsCount: generatedDocumentPaths.length,
       shippingLabelsCount: allGifPaths.length,
-      totalDocumentsEmailed: allDocumentPaths.length
+      totalDocumentsEmailed: allDocumentPaths.length,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Doc generation/upload failed' });
+    res
+      .status(500)
+      .json({ error: err.message || "Doc generation/upload failed" });
   }
 });
 
-app.get('/', (_req, res) => {
-  res.send('UPS Service is running');
+app.get("/", (_req, res) => {
+  res.send("UPS Service is running");
 });
 
 app.listen(PORT, () => {
   console.log(`UPS service listening on http://localhost:${PORT}`);
 });
-
-
