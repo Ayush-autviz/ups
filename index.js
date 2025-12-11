@@ -167,10 +167,17 @@ async function createUpsShipmentReal(shipmentData) {
           Description: shipmentData.serviceDescription || "Ground",
         },
         PaymentInformation: {
-          ShipmentCharge: {
-            Type: "01", // 01 = Transportation
-            BillShipper: { AccountNumber: accountNumber },
-          },
+          // Transportation + Duties/Taxes billed to our account
+          ShipmentCharge: [
+            {
+              Type: "01", // Transportation
+              BillShipper: { AccountNumber: accountNumber },
+            },
+            {
+              Type: "02", // Duties and Taxes (invalid for qualified domestic)
+              BillShipper: { AccountNumber: accountNumber },
+            },
+          ],
         },
         Package: Array.from({ length: shipmentData.number_of_boxes }).map(
           (it) => {
